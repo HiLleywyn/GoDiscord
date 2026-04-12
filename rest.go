@@ -153,6 +153,16 @@ func (r *RestClient) EditMessage(channelID, messageID, content string) (*Message
 	return &m, nil
 }
 
+// EditMessageEmbed replaces the embeds on a message authored by the bot.
+func (r *RestClient) EditMessageEmbed(channelID, messageID string, embed Embed) (*Message, error) {
+	var m Message
+	if err := r.patch("/channels/"+channelID+"/messages/"+messageID,
+		&MessageEdit{Embeds: []Embed{embed}}, &m); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
 // DeleteMessage deletes a message.
 func (r *RestClient) DeleteMessage(channelID, messageID string) error {
 	return r.delete("/channels/" + channelID + "/messages/" + messageID)
@@ -273,4 +283,119 @@ func (r *RestClient) GetUser(userID string) (*User, error) {
 		return nil, err
 	}
 	return &u, nil
+}
+
+// ---------------------------------------------------------------------------
+// Guild member management
+// ---------------------------------------------------------------------------
+
+// ModifyGuildMember updates attributes of a guild member.
+// Accepted keys: nick, roles, mute, deaf, channel_id, communication_disabled_until.
+func (r *RestClient) ModifyGuildMember(guildID, userID string, data map[string]interface{}) (*Member, error) {
+	var m Member
+	if err := r.patch("/guilds/"+guildID+"/members/"+userID, data, &m); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// TimeoutMember applies a Discord communication timeout to a member.
+// Pass a zero-value time.Time (or nil) to remove the timeout.
+// until must be an RFC3339 timestamp string, e.g. time.Now().Add(5*time.Minute).UTC().Format(time.RFC3339).
+// Pass an empty string to remove the timeout.
+func (r *RestClient) TimeoutMember(guildID, userID, until string) error {
+	var val interface{}
+	if until == "" {
+		val = nil
+	} else {
+		val = until
+	}
+	return r.patch("/guilds/"+guildID+"/members/"+userID,
+		map[string]interface{}{"communication_disabled_until": val}, nil)
+}
+
+// GetGuildRoles returns all roles for a guild.
+func (r *RestClient) GetGuildRoles(guildID string) ([]Role, error) {
+	var roles []Role
+	if err := r.get("/guilds/"+guildID+"/roles", &roles); err != nil {
+		return nil, err
+	}
+	return roles, nil
+}
+
+// GetGuildChannels returns all channels for a guild.
+func (r *RestClient) GetGuildChannels(guildID string) ([]Channel, error) {
+	var channels []Channel
+	if err := r.get("/guilds/"+guildID+"/channels", &channels); err != nil {
+		return nil, err
+	}
+	return channels, nil
+}
+
+// GetGuildBan fetches a specific ban record.
+func (r *RestClient) GetGuildBan(guildID, userID string) (*Ban, error) {
+	var b Ban
+	if err := r.get("/guilds/"+guildID+"/bans/"+userID, &b); err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
+// GetGuildBans returns all ban records for a guild.
+func (r *RestClient) GetGuildBans(guildID string) ([]Ban, error) {
+	var bans []Ban
+	if err := r.get("/guilds/"+guildID+"/bans", &bans); err != nil {
+		return nil, err
+	}
+	return bans, nil
+}
+
+// ---------------------------------------------------------------------------
+// Messages — bulk delete and listing
+// ---------------------------------------------------------------------------
+
+// GetMessages fetches up to `limit` (max 100) recent messages from a channel.
+func (r *RestClient) GetMessages(channelID string, limit int) ([]Message, error) {
+	if limit > 100 {
+		limit = 100
+	}
+	var msgs []Message
+	path := fmt.Sprintf("/channels/%s/messages?limit=%d", channelID, limit)
+	if err := r.get(path, &msgs); err != nil {
+		return nil, err
+	}
+	return msgs, nil
+}
+
+// BulkDeleteMessages deletes 2–100 messages at once.
+// Messages older than 14 days cannot be bulk-deleted (Discord restriction).
+func (r *RestClient) BulkDeleteMessages(channelID string, messageIDs []string) error {
+	return r.post("/channels/"+channelID+"/messages/bulk-delete",
+		map[string]interface{}{"messages": messageIDs}, nil)
+}
+
+// ---------------------------------------------------------------------------
+// Channels — modification
+// ---------------------------------------------------------------------------
+
+// ModifyChannel updates channel settings.
+// Accepted keys: name, topic, nsfw, rate_limit_per_user, position, permission_overwrites, etc.
+func (r *RestClient) ModifyChannel(channelID string, data map[string]interface{}) (*Channel, error) {
+	var ch Channel
+	if err := r.patch("/channels/"+channelID, data, &ch); err != nil {
+		return nil, err
+	}
+	return &ch, nil
+}
+
+// EditChannelPermissions sets a permission overwrite on a channel.
+// overwriteID is a role or user ID; typ is 0 for role, 1 for member.
+func (r *RestClient) EditChannelPermissions(channelID, overwriteID string, allow, deny string, typ int) error {
+	return r.put("/channels/"+channelID+"/permissions/"+overwriteID,
+		map[string]interface{}{"allow": allow, "deny": deny, "type": typ})
+}
+
+// DeleteChannelPermission removes a permission overwrite from a channel.
+func (r *RestClient) DeleteChannelPermission(channelID, overwriteID string) error {
+	return r.delete("/channels/" + channelID + "/permissions/" + overwriteID)
 }
