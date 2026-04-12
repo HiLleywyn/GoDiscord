@@ -6,11 +6,42 @@ package discord
 // configured prefix and a known command name (or alias), the command's Handler
 // is called with a CommandContext that provides the bot, the message, parsed
 // arguments, and convenience reply methods.
+//
+// # Argument Parsing
+//
+// Arguments are split on whitespace by default. Double-quoted strings are
+// treated as a single argument regardless of internal spaces:
+//
+//	!ban @user "being very rude in general"
+//	// Args: ["@user", "being very rude in general"]
+//
+// # Middleware
+//
+// Register middleware with Bot.Use(). Middleware wraps every command handler:
+//
+//	bot.Use(func(next discord.HandlerFunc) discord.HandlerFunc {
+//	    return func(ctx *discord.CommandContext) {
+//	        log.Printf("[cmd] %s by %s", ctx.Command.Name, ctx.Message.Author.Username)
+//	        next(ctx)
+//	    }
+//	})
 
 import (
 	"strings"
 	"sync"
 )
+
+// ---------------------------------------------------------------------------
+// Middleware
+// ---------------------------------------------------------------------------
+
+// HandlerFunc is the type of a command handler function. Middleware functions
+// accept a HandlerFunc and return a wrapped HandlerFunc.
+type HandlerFunc func(*CommandContext)
+
+// MiddlewareFunc wraps a HandlerFunc, allowing pre/post processing around
+// every command invocation.
+type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 
 // ---------------------------------------------------------------------------
 // Command
@@ -27,7 +58,12 @@ type Command struct {
 	// Description is a human-readable summary shown in help output.
 	Description string
 
-	// Handler is called when the command is matched.
+	// Usage describes the argument syntax, e.g. "@user [days] [reason]".
+	// Shown in help embeds if non-empty.
+	Usage string
+
+	// Handler is called when the command is matched. Do not set this field
+	// directly when using middleware — use commandHandler.build() internally.
 	Handler func(*CommandContext)
 }
 
@@ -47,11 +83,12 @@ type CommandContext struct {
 	// Command is the matched Command struct.
 	Command *Command
 
-	// Args contains the whitespace-split tokens after the command name.
-	// e.g. "!ban @user spamming" → Args: ["@user", "spamming"]
+	// Args contains the parsed tokens after the command name.
+	// Quoted strings are kept together as a single argument:
+	//   !ban @user "too many warnings" → Args: ["@user", "too many warnings"]
 	Args []string
 
-	// RawArgs is everything after the command name, unsplit.
+	// RawArgs is everything after the command name, unsplit and untouched.
 	RawArgs string
 }
 
@@ -75,11 +112,12 @@ func (ctx *CommandContext) ReplyTo(content string) (*Message, error) {
 // commandHandler
 // ---------------------------------------------------------------------------
 
-// commandHandler manages the registered commands and routes messages.
+// commandHandler manages registered commands and routes messages.
 type commandHandler struct {
-	prefix   string
-	mu       sync.RWMutex
-	commands map[string]*Command // keyed by lower-cased name and aliases
+	prefix     string
+	mu         sync.RWMutex
+	commands   map[string]*Command // keyed by lower-cased name and aliases
+	middleware []MiddlewareFunc
 }
 
 func newCommandHandler(prefix string) *commandHandler {
@@ -87,6 +125,14 @@ func newCommandHandler(prefix string) *commandHandler {
 		prefix:   prefix,
 		commands: make(map[string]*Command),
 	}
+}
+
+// use appends middleware to the chain. Order matters: the first Use() call
+// becomes the outermost wrapper.
+func (h *commandHandler) use(mw ...MiddlewareFunc) {
+	h.mu.Lock()
+	h.middleware = append(h.middleware, mw...)
+	h.mu.Unlock()
 }
 
 // register adds a command (and its aliases) to the routing table.
@@ -99,7 +145,7 @@ func (h *commandHandler) register(cmd *Command) {
 	}
 }
 
-// list returns all unique registered commands (no duplicates from aliases).
+// list returns all unique registered commands (no alias duplicates).
 func (h *commandHandler) list() []*Command {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -128,33 +174,36 @@ func (h *commandHandler) handle(b *Bot, msg *Message) {
 		return
 	}
 
-	// Strip the prefix and split into tokens.
 	rest := strings.TrimPrefix(msg.Content, prefix)
 	if rest == "" {
 		return
 	}
 
+	// Parse the command name from the first whitespace-delimited token.
 	tokens := strings.Fields(rest)
 	if len(tokens) == 0 {
 		return
 	}
 
 	cmdName := strings.ToLower(tokens[0])
-	args := tokens[1:]
 	rawArgs := ""
-	if len(args) > 0 {
-		// Preserve original spacing for rawArgs.
-		idx := strings.Index(rest, tokens[0]) + len(tokens[0])
-		rawArgs = strings.TrimSpace(rest[idx:])
+	if idx := strings.Index(rest, tokens[0]); idx >= 0 {
+		after := rest[idx+len(tokens[0]):]
+		rawArgs = strings.TrimSpace(after)
 	}
 
 	h.mu.RLock()
 	cmd, ok := h.commands[cmdName]
+	mw := h.middleware
 	h.mu.RUnlock()
 
 	if !ok {
 		return
 	}
+
+	// Use the quoted-aware parser for Args so callers can do:
+	//   !reason <id> "new reason with spaces"
+	args := parseArgs(rawArgs)
 
 	ctx := &CommandContext{
 		Bot:     b,
@@ -163,5 +212,82 @@ func (h *commandHandler) handle(b *Bot, msg *Message) {
 		Args:    args,
 		RawArgs: rawArgs,
 	}
-	cmd.Handler(ctx)
+
+	// Build the middleware chain and invoke.
+	final := buildChain(cmd.Handler, mw)
+	final(ctx)
+}
+
+// buildChain wraps handler with middleware in reverse order so the first
+// middleware in the slice is the outermost wrapper.
+func buildChain(handler HandlerFunc, mw []MiddlewareFunc) HandlerFunc {
+	for i := len(mw) - 1; i >= 0; i-- {
+		handler = mw[i](handler)
+	}
+	return handler
+}
+
+// ---------------------------------------------------------------------------
+// Quoted argument parser
+// ---------------------------------------------------------------------------
+
+// parseArgs splits s into arguments, respecting double-quoted strings.
+// Quoted strings may contain spaces and are returned without their quotes.
+// A backslash before a double-quote escapes it inside a quoted string.
+//
+// Examples:
+//
+//	parseArgs(`@user spamming`)                      → ["@user", "spamming"]
+//	parseArgs(`@user "repeated rule violations"`)    → ["@user", "repeated rule violations"]
+//	parseArgs(`@user "said \"hi\" 3 times"`)         → ["@user", `said "hi" 3 times`]
+func parseArgs(s string) []string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+
+	var args []string
+	var cur strings.Builder
+	inQuote := false
+	escaped := false
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+
+		if escaped {
+			cur.WriteByte(c)
+			escaped = false
+			continue
+		}
+
+		switch c {
+		case '\\':
+			if inQuote {
+				escaped = true
+			} else {
+				cur.WriteByte(c)
+			}
+		case '"':
+			if inQuote {
+				inQuote = false
+			} else {
+				inQuote = true
+			}
+		case ' ', '\t':
+			if inQuote {
+				cur.WriteByte(c)
+			} else if cur.Len() > 0 {
+				args = append(args, cur.String())
+				cur.Reset()
+			}
+		default:
+			cur.WriteByte(c)
+		}
+	}
+
+	if cur.Len() > 0 {
+		args = append(args, cur.String())
+	}
+
+	return args
 }
