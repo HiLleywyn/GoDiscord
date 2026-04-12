@@ -109,6 +109,44 @@ func (b *Bot) OnReactionRemove(h ReactionRemoveHandler) *Bot {
 	return b
 }
 
+// OnInteractionCreate registers a handler for all interaction events
+// (slash commands, button clicks, select menu choices, etc.).
+func (b *Bot) OnInteractionCreate(h InteractionCreateHandler) *Bot {
+	b.events.addInteractionCreate(h)
+	return b
+}
+
+// OnGuildMemberAdd registers a handler called when a user joins a guild.
+func (b *Bot) OnGuildMemberAdd(h GuildMemberAddHandler) *Bot {
+	b.events.addGuildMemberAdd(h)
+	return b
+}
+
+// OnGuildMemberRemove registers a handler called when a user leaves or is removed from a guild.
+func (b *Bot) OnGuildMemberRemove(h GuildMemberRemoveHandler) *Bot {
+	b.events.addGuildMemberRemove(h)
+	return b
+}
+
+// OnGuildMemberUpdate registers a handler for guild member state changes
+// (role changes, nickname updates, timeout applied/removed, etc.).
+func (b *Bot) OnGuildMemberUpdate(h GuildMemberUpdateHandler) *Bot {
+	b.events.addGuildMemberUpdate(h)
+	return b
+}
+
+// OnGuildBanAdd registers a handler called when a user is banned from a guild.
+func (b *Bot) OnGuildBanAdd(h GuildBanAddHandler) *Bot {
+	b.events.addGuildBanAdd(h)
+	return b
+}
+
+// OnGuildBanRemove registers a handler called when a ban is lifted.
+func (b *Bot) OnGuildBanRemove(h GuildBanRemoveHandler) *Bot {
+	b.events.addGuildBanRemove(h)
+	return b
+}
+
 // ---------------------------------------------------------------------------
 // Command framework
 // ---------------------------------------------------------------------------
