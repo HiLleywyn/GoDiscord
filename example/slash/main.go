@@ -130,10 +130,16 @@ func handleCommand(b *discord.Bot, i *discord.Interaction) {
 		if max < 1 {
 			max = 1
 		}
-		// Derive a deterministic demo result from the interaction ID's last digit.
-		// A real implementation should use math/rand or crypto/rand.
-		lastDigit := i.ID[len(i.ID)-1]
-		result := int64(lastDigit)%max + 1
+		// Derive a deterministic demo result from the interaction ID's last
+		// decimal digit. We subtract '0' so we get 0-9 (the integer value)
+		// instead of the byte's ASCII code (e.g. '7' == 55), which would
+		// produce a skewed and unintuitive modulus result. A real
+		// implementation should use math/rand or crypto/rand.
+		var lastDigit int64
+		if last := i.ID[len(i.ID)-1]; last >= '0' && last <= '9' {
+			lastDigit = int64(last - '0')
+		}
+		result := lastDigit%max + 1
 		b.Rest.CreateInteractionResponse(i.ID, i.Token, discord.InteractionResponse{
 			Type: discord.InteractionCallbackTypeChannelMessage,
 			Data: &discord.InteractionResponseData{

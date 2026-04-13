@@ -122,7 +122,14 @@ func main() {
 				return
 			}
 
-			perms, _ := discord.ParsePermission(member.Permissions)
+			// member.Permissions can be empty when Discord doesn't include a
+			// resolved permission bitfield (e.g. /guilds/{id}/members), so
+			// distinguish the empty case (no error, perms == 0) from the
+			// malformed case (error, fall back to "unknown").
+			adminValue := "unknown"
+			if perms, perr := discord.ParsePermission(member.Permissions); perr == nil {
+				adminValue = fmt.Sprintf("%v", perms.IsAdmin())
+			}
 
 			embed := discord.Embed{
 				Title: member.User.Tag(),
@@ -132,7 +139,7 @@ func main() {
 					{Name: "Joined", Value: member.JoinedAt, Inline: true},
 					{Name: "Roles", Value: fmt.Sprintf("%d roles", len(member.Roles)), Inline: true},
 					{Name: "Bot", Value: fmt.Sprintf("%v", member.User.Bot), Inline: true},
-					{Name: "Admin", Value: fmt.Sprintf("%v", perms.IsAdmin()), Inline: true},
+					{Name: "Admin", Value: adminValue, Inline: true},
 				},
 				Footer: &discord.EmbedFooter{Text: "GoDiscord basic example"},
 			}
