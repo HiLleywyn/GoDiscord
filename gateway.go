@@ -7,50 +7,63 @@ package discord
 //   - Send the Identify payload to authenticate.
 //   - Maintain the heartbeat loop required by Discord.
 //   - Dispatch incoming events to the event dispatcher.
-//   - Automatically reconnect and resume a session after disconnects.
+//   - Automatically reconnect and resume a session after disconnects,
+//     using exponential back-off with jitter.
+//   - Detect zombie connections (missed heartbeat ACKs) and force reconnect.
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
-	"log"
+	"math/rand"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
-// Discord Gateway opcodes (https://discord.com/developers/docs/topics/opcodes-and-status-codes).
+// Discord Gateway opcodes.
+// https://discord.com/developers/docs/topics/opcodes-and-status-codes
 const (
-	opDispatch            = 0
-	opHeartbeat           = 1
-	opIdentify            = 2
-	opPresenceUpdate      = 3
-	opResume              = 6
-	opReconnect           = 7
-	opInvalidSession      = 9
-	opHello               = 10
-	opHeartbeatACK        = 11
+	opDispatch       = 0
+	opHeartbeat      = 1
+	opIdentify       = 2
+	opPresenceUpdate = 3
+	opResume         = 6
+	opReconnect      = 7
+	opInvalidSession = 9
+	opHello          = 10
+	opHeartbeatACK   = 11
 )
 
 const (
-	gatewayURL    = "wss://gateway.discord.gg/?v=10&encoding=json"
-	gatewayAPIVer = 10
+	gatewayURL = "wss://gateway.discord.gg/?v=10&encoding=json"
+)
+
+// Reconnect back-off parameters.
+const (
+	backoffBase   = time.Second      // initial wait
+	backoffMax    = 5 * time.Minute  // cap
+	backoffFactor = 2.0              // multiplier per attempt
+	backoffJitter = 0.2              // ±20 % random jitter
 )
 
 // gateway manages the Discord Gateway connection for a Bot.
 type gateway struct {
 	bot *Bot
 
-	// Connection state.
+	// Connection state — protected by sessionMu.
 	conn      *wsConn
-	sequence  int64 // last seen sequence number (atomic)
+	sessionMu sync.RWMutex
 	sessionID string
 	resumeURL string
 
+	// sequence is the last seen dispatch sequence number (atomic).
+	sequence int64
+
 	// Heartbeat state.
 	heartbeatInterval time.Duration
-	lastACK           atomic.Bool
+	lastACK           atomic.Bool // set to true on ACK, false before each send
 
-	// Lifecycle.
+	// Lifecycle channels.
 	stopCh chan struct{}
 	doneCh chan struct{}
 }
@@ -67,10 +80,10 @@ func newGateway(bot *Bot) *gateway {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-// start begins the connection loop in the background and returns immediately.
+// start performs the first connection synchronously, then launches the
+// reconnect loop in a goroutine. Returns immediately after the initial
+// connection succeeds or fails.
 func (g *gateway) start() error {
-	// Perform the first connection synchronously so the caller gets an
-	// immediate error if the token or network is bad.
 	if err := g.connect(); err != nil {
 		return err
 	}
@@ -78,61 +91,97 @@ func (g *gateway) start() error {
 	return nil
 }
 
-// stop signals the gateway to shut down cleanly.
+// stop signals the gateway to disconnect and waits for the read-loop to exit.
 func (g *gateway) stop() {
 	close(g.stopCh)
-	if g.conn != nil {
-		g.conn.Close()
+	g.sessionMu.RLock()
+	conn := g.conn
+	g.sessionMu.RUnlock()
+	if conn != nil {
+		conn.Close()
 	}
 	<-g.doneCh
 }
 
-// loop drives reconnection. It runs until stop() is called.
+// loop drives reconnection with exponential back-off. It runs until stop() is
+// called.
 func (g *gateway) loop() {
 	defer close(g.doneCh)
 
+	attempt := 0
+
 	for {
-		// readLoop blocks until the connection drops.
 		err := g.readLoop()
 
-		// Check whether stop() was called.
 		select {
 		case <-g.stopCh:
 			return
 		default:
 		}
 
+		delay := backoffDelay(attempt)
 		if err != nil && err != io.EOF {
-			log.Printf("[gateway] disconnected: %v — reconnecting in 5s", err)
+			g.bot.log.Printf("[gateway] disconnected: %v — reconnecting in %s", err, delay.Round(time.Millisecond))
 		} else {
-			log.Printf("[gateway] disconnected — reconnecting in 5s")
+			g.bot.log.Printf("[gateway] disconnected — reconnecting in %s", delay.Round(time.Millisecond))
 		}
 
-		// Back off before reconnecting.
 		select {
-		case <-time.After(5 * time.Second):
+		case <-time.After(delay):
 		case <-g.stopCh:
 			return
 		}
 
 		if err := g.connect(); err != nil {
-			log.Printf("[gateway] reconnect failed: %v", err)
+			g.bot.log.Printf("[gateway] reconnect failed: %v", err)
+			attempt++
+			continue
 		}
+		attempt = 0 // reset on successful connection
 	}
 }
 
-// connect opens a new WebSocket connection and sends Identify (or Resume).
+// backoffDelay computes the wait time for reconnect attempt n using
+// exponential back-off with ±jitter%.
+func backoffDelay(attempt int) time.Duration {
+	d := backoffBase
+	for i := 0; i < attempt; i++ {
+		d = time.Duration(float64(d) * backoffFactor)
+		if d > backoffMax {
+			d = backoffMax
+			break
+		}
+	}
+	// Apply ±backoffJitter random jitter.
+	jitter := 1 + (rand.Float64()*2-1)*backoffJitter
+	return time.Duration(float64(d) * jitter)
+}
+
+// connect opens a new WebSocket connection and stores it. Does not send
+// Identify or Resume — that happens in the Hello handler inside readLoop.
 func (g *gateway) connect() error {
+	g.sessionMu.RLock()
+	resume := g.resumeURL
+	g.sessionMu.RUnlock()
+
 	target := gatewayURL
-	if g.resumeURL != "" {
-		target = g.resumeURL + "?v=10&encoding=json"
+	if resume != "" {
+		target = resume + "?v=10&encoding=json"
 	}
 
 	conn, err := wsDial(target)
 	if err != nil {
-		return fmt.Errorf("gateway: dial: %w", err)
+		// Clear the resume URL so the next attempt falls back to the primary
+		// gateway rather than retrying a potentially stale URL.
+		g.sessionMu.Lock()
+		g.resumeURL = ""
+		g.sessionMu.Unlock()
+		return err
 	}
+
+	g.sessionMu.Lock()
 	g.conn = conn
+	g.sessionMu.Unlock()
 	return nil
 }
 
@@ -140,18 +189,21 @@ func (g *gateway) connect() error {
 // Read loop
 // ---------------------------------------------------------------------------
 
-// readLoop reads frames from the WebSocket until an error occurs.
-// It handles all opcodes and dispatches events.
+// readLoop reads frames until an error or forced close.
 func (g *gateway) readLoop() error {
 	for {
-		data, err := g.conn.ReadMessage()
+		g.sessionMu.RLock()
+		conn := g.conn
+		g.sessionMu.RUnlock()
+
+		data, err := conn.ReadMessage()
 		if err != nil {
 			return err
 		}
 
 		var p gatewayPayload
 		if err := json.Unmarshal(data, &p); err != nil {
-			log.Printf("[gateway] unmarshal error: %v", err)
+			g.bot.log.Printf("[gateway] unmarshal error: %v", err)
 			continue
 		}
 
@@ -163,7 +215,6 @@ func (g *gateway) readLoop() error {
 
 // handlePayload processes a single gateway payload.
 func (g *gateway) handlePayload(p *gatewayPayload) error {
-	// Update sequence number for every dispatch event.
 	if p.Sequence != nil {
 		atomic.StoreInt64(&g.sequence, *p.Sequence)
 	}
@@ -178,11 +229,16 @@ func (g *gateway) handlePayload(p *gatewayPayload) error {
 		}
 		g.heartbeatInterval = time.Duration(hello.HeartbeatInterval) * time.Millisecond
 
-		// Kick off the heartbeat loop.
+		// Prime lastACK so the first zombie check doesn't fire prematurely.
+		g.lastACK.Store(true)
+
 		go g.heartbeatLoop()
 
-		// Identify or resume.
-		if g.sessionID != "" {
+		g.sessionMu.RLock()
+		sid := g.sessionID
+		g.sessionMu.RUnlock()
+
+		if sid != "" {
 			return g.sendResume()
 		}
 		return g.sendIdentify()
@@ -191,27 +247,30 @@ func (g *gateway) handlePayload(p *gatewayPayload) error {
 		g.lastACK.Store(true)
 
 	case opHeartbeat:
-		// Discord requested an out-of-band heartbeat.
 		return g.sendHeartbeat()
 
 	case opReconnect:
-		// Discord wants us to reconnect and resume.
-		log.Printf("[gateway] received Reconnect — closing for resume")
-		g.conn.Close()
+		g.bot.log.Printf("[gateway] received Reconnect — closing for resume")
+		g.sessionMu.RLock()
+		conn := g.conn
+		g.sessionMu.RUnlock()
+		conn.Close()
 		return io.EOF
 
 	case opInvalidSession:
-		// d == false means the session is not resumable.
 		var resumable bool
 		_ = json.Unmarshal(p.Data, &resumable)
 		if !resumable {
+			g.sessionMu.Lock()
 			g.sessionID = ""
 			g.resumeURL = ""
+			g.sessionMu.Unlock()
 			atomic.StoreInt64(&g.sequence, 0)
 		}
-		log.Printf("[gateway] InvalidSession (resumable=%v)", resumable)
-		// Jitter before re-identifying.
-		time.Sleep(time.Second)
+		g.bot.log.Printf("[gateway] InvalidSession (resumable=%v)", resumable)
+		// Discord recommends a random 1–5 s jitter before re-identifying.
+		jitter := time.Duration(1000+rand.Intn(4000)) * time.Millisecond
+		time.Sleep(jitter)
 		return g.sendIdentify()
 
 	case opDispatch:
@@ -223,24 +282,25 @@ func (g *gateway) handlePayload(p *gatewayPayload) error {
 
 // handleDispatch processes dispatch events (op 0).
 func (g *gateway) handleDispatch(p *gatewayPayload) {
-	switch p.Type {
-	case "READY":
+	if p.Type == "READY" {
 		var ready ReadyEvent
 		if err := json.Unmarshal(p.Data, &ready); err != nil {
+			g.bot.log.Printf("[gateway] failed to unmarshal READY: %v", err)
 			return
 		}
+
+		g.sessionMu.Lock()
 		g.sessionID = ready.SessionID
 		g.resumeURL = ready.ResumeGatewayURL
+		g.sessionMu.Unlock()
 
-		// Expose the bot's own User object.
 		g.bot.mu.Lock()
 		g.bot.self = &ready.User
 		g.bot.mu.Unlock()
 
-		log.Printf("[gateway] Ready — logged in as %s", ready.User.Tag())
+		g.bot.log.Printf("[gateway] Ready — logged in as %s", ready.User.Tag())
 	}
 
-	// Forward to the event dispatcher.
 	g.bot.events.dispatch(g.bot, p.Type, p.Data)
 }
 
@@ -248,10 +308,13 @@ func (g *gateway) handleDispatch(p *gatewayPayload) {
 // Heartbeat
 // ---------------------------------------------------------------------------
 
+// heartbeatLoop sends heartbeats on the Discord-specified interval.
+// If a heartbeat ACK is not received before the next send, the connection is
+// treated as a zombie and closed to trigger a resume.
 func (g *gateway) heartbeatLoop() {
-	// Jitter: sleep a random fraction of the interval before the first beat.
-	// This mirrors Discord's recommendation. We use a simple 0.5× jitter.
-	jitter := g.heartbeatInterval / 2
+	// Initial jitter: sleep a random 0–interval fraction before the first beat.
+	// This prevents thundering-herd on mass reconnects.
+	jitter := time.Duration(rand.Int63n(int64(g.heartbeatInterval)))
 	select {
 	case <-time.After(jitter):
 	case <-g.stopCh:
@@ -262,9 +325,26 @@ func (g *gateway) heartbeatLoop() {
 	defer ticker.Stop()
 
 	for {
+		// Zombie detection: if we haven't received an ACK since the last
+		// heartbeat, the connection is stale — close it to force a resume.
+		if !g.lastACK.Load() {
+			g.bot.log.Printf("[gateway] heartbeat ACK not received — zombie connection detected, reconnecting")
+			g.sessionMu.RLock()
+			conn := g.conn
+			g.sessionMu.RUnlock()
+			if conn != nil {
+				conn.Close()
+			}
+			return
+		}
+
+		// Mark ACK as not yet received before sending the next heartbeat.
+		g.lastACK.Store(false)
+
 		if err := g.sendHeartbeat(); err != nil {
 			return
 		}
+
 		select {
 		case <-ticker.C:
 		case <-g.stopCh:
@@ -279,7 +359,10 @@ func (g *gateway) sendHeartbeat() error {
 	if seq == 0 {
 		d = nil
 	}
-	return g.conn.WriteJSON(map[string]interface{}{
+	g.sessionMu.RLock()
+	conn := g.conn
+	g.sessionMu.RUnlock()
+	return conn.WriteJSON(map[string]interface{}{
 		"op": opHeartbeat,
 		"d":  d,
 	})
@@ -296,7 +379,11 @@ func (g *gateway) sendIdentify() error {
 	pres := g.bot.initialPresence
 	g.bot.mu.RUnlock()
 
-	payload := map[string]interface{}{
+	g.sessionMu.RLock()
+	conn := g.conn
+	g.sessionMu.RUnlock()
+
+	return conn.WriteJSON(map[string]interface{}{
 		"op": opIdentify,
 		"d": map[string]interface{}{
 			"token":   token,
@@ -308,8 +395,7 @@ func (g *gateway) sendIdentify() error {
 			},
 			"presence": pres,
 		},
-	}
-	return g.conn.WriteJSON(payload)
+	})
 }
 
 func (g *gateway) sendResume() error {
@@ -317,11 +403,16 @@ func (g *gateway) sendResume() error {
 	token := g.bot.token
 	g.bot.mu.RUnlock()
 
-	return g.conn.WriteJSON(map[string]interface{}{
+	g.sessionMu.RLock()
+	sid := g.sessionID
+	conn := g.conn
+	g.sessionMu.RUnlock()
+
+	return conn.WriteJSON(map[string]interface{}{
 		"op": opResume,
 		"d": map[string]interface{}{
 			"token":      token,
-			"session_id": g.sessionID,
+			"session_id": sid,
 			"seq":        atomic.LoadInt64(&g.sequence),
 		},
 	})
@@ -332,7 +423,13 @@ func (g *gateway) sendResume() error {
 // ---------------------------------------------------------------------------
 
 func (g *gateway) updatePresence(p presence) error {
-	return g.conn.WriteJSON(map[string]interface{}{
+	g.sessionMu.RLock()
+	conn := g.conn
+	g.sessionMu.RUnlock()
+	if conn == nil {
+		return nil
+	}
+	return conn.WriteJSON(map[string]interface{}{
 		"op": opPresenceUpdate,
 		"d":  p,
 	})

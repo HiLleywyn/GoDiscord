@@ -4,9 +4,14 @@ package discord
 //
 // Each Discord Gateway event has a strongly-typed handler signature so callers
 // get compile-time safety rather than interface{} type assertions.
+//
+// All handlers run in their own goroutines so a slow handler cannot block the
+// gateway read-loop. Each goroutine is wrapped in a panic-recovery shim that
+// logs the stack trace and continues rather than crashing the process.
 
 import (
 	"encoding/json"
+	"runtime/debug"
 	"sync"
 )
 
@@ -49,10 +54,12 @@ type (
 	// GuildMemberAddHandler is called when a user joins a guild.
 	GuildMemberAddHandler func(*Bot, *GuildMemberAddEvent)
 
-	// GuildMemberRemoveHandler is called when a user leaves or is removed from a guild.
+	// GuildMemberRemoveHandler is called when a user leaves or is removed from
+	// a guild.
 	GuildMemberRemoveHandler func(*Bot, *GuildMemberRemoveEvent)
 
-	// GuildMemberUpdateHandler is called when a guild member's state changes.
+	// GuildMemberUpdateHandler is called when a guild member's state changes
+	// (role changes, nickname updates, timeout applied/removed, etc.).
 	GuildMemberUpdateHandler func(*Bot, *GuildMemberUpdateEvent)
 
 	// GuildBanAddHandler is called when a user is banned from a guild.
@@ -88,6 +95,24 @@ type eventDispatcher struct {
 
 func newEventDispatcher() *eventDispatcher {
 	return &eventDispatcher{}
+}
+
+// ---------------------------------------------------------------------------
+// Panic recovery
+// ---------------------------------------------------------------------------
+
+// safeGo launches fn in a new goroutine. If fn panics, the panic is recovered,
+// logged via b.log, and the goroutine exits cleanly — preventing a single
+// bad handler from crashing the entire bot process.
+func safeGo(b *Bot, fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				b.log.Printf("[events] handler panic: %v\n%s", r, debug.Stack())
+			}
+		}()
+		fn()
+	}()
 }
 
 // ---------------------------------------------------------------------------
@@ -183,8 +208,8 @@ func (d *eventDispatcher) addGuildBanRemove(h GuildBanRemoveHandler) {
 // ---------------------------------------------------------------------------
 
 // dispatch unmarshals the raw JSON data and calls all matching handlers.
-// Handlers run in their own goroutines so a slow handler cannot block the
-// gateway read-loop.
+// Every handler runs inside safeGo so panics are contained and logged rather
+// than crashing the process.
 func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessage) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -196,11 +221,12 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 		}
 		var e ReadyEvent
 		if err := json.Unmarshal(data, &e); err != nil {
+			b.log.Printf("[events] READY unmarshal error: %v", err)
 			return
 		}
 		for _, h := range d.onReady {
 			h := h
-			go h(b, &e)
+			safeGo(b, func() { h(b, &e) })
 		}
 
 	case "MESSAGE_CREATE":
@@ -209,15 +235,15 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 		}
 		var e Message
 		if err := json.Unmarshal(data, &e); err != nil {
+			b.log.Printf("[events] MESSAGE_CREATE unmarshal error: %v", err)
 			return
 		}
-		// Let the command handler run first (synchronously, still fast).
 		if b.commands != nil {
-			go b.commands.handle(b, &e)
+			safeGo(b, func() { b.commands.handle(b, &e) })
 		}
 		for _, h := range d.onMessageCreate {
 			h := h
-			go h(b, &e)
+			safeGo(b, func() { h(b, &e) })
 		}
 
 	case "MESSAGE_UPDATE":
@@ -226,11 +252,12 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 		}
 		var e Message
 		if err := json.Unmarshal(data, &e); err != nil {
+			b.log.Printf("[events] MESSAGE_UPDATE unmarshal error: %v", err)
 			return
 		}
 		for _, h := range d.onMessageUpdate {
 			h := h
-			go h(b, &e)
+			safeGo(b, func() { h(b, &e) })
 		}
 
 	case "MESSAGE_DELETE":
@@ -239,11 +266,12 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 		}
 		var e MessageDeleteEvent
 		if err := json.Unmarshal(data, &e); err != nil {
+			b.log.Printf("[events] MESSAGE_DELETE unmarshal error: %v", err)
 			return
 		}
 		for _, h := range d.onMessageDelete {
 			h := h
-			go h(b, &e)
+			safeGo(b, func() { h(b, &e) })
 		}
 
 	case "GUILD_CREATE":
@@ -252,11 +280,12 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 		}
 		var e Guild
 		if err := json.Unmarshal(data, &e); err != nil {
+			b.log.Printf("[events] GUILD_CREATE unmarshal error: %v", err)
 			return
 		}
 		for _, h := range d.onGuildCreate {
 			h := h
-			go h(b, &e)
+			safeGo(b, func() { h(b, &e) })
 		}
 
 	case "GUILD_DELETE":
@@ -265,11 +294,12 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 		}
 		var e GuildUnavailable
 		if err := json.Unmarshal(data, &e); err != nil {
+			b.log.Printf("[events] GUILD_DELETE unmarshal error: %v", err)
 			return
 		}
 		for _, h := range d.onGuildDelete {
 			h := h
-			go h(b, &e)
+			safeGo(b, func() { h(b, &e) })
 		}
 
 	case "MESSAGE_REACTION_ADD":
@@ -278,11 +308,12 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 		}
 		var e MessageReactionAddEvent
 		if err := json.Unmarshal(data, &e); err != nil {
+			b.log.Printf("[events] MESSAGE_REACTION_ADD unmarshal error: %v", err)
 			return
 		}
 		for _, h := range d.onReactionAdd {
 			h := h
-			go h(b, &e)
+			safeGo(b, func() { h(b, &e) })
 		}
 
 	case "MESSAGE_REACTION_REMOVE":
@@ -291,11 +322,12 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 		}
 		var e MessageReactionRemoveEvent
 		if err := json.Unmarshal(data, &e); err != nil {
+			b.log.Printf("[events] MESSAGE_REACTION_REMOVE unmarshal error: %v", err)
 			return
 		}
 		for _, h := range d.onReactionRemove {
 			h := h
-			go h(b, &e)
+			safeGo(b, func() { h(b, &e) })
 		}
 
 	case "INTERACTION_CREATE":
@@ -304,11 +336,12 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 		}
 		var e Interaction
 		if err := json.Unmarshal(data, &e); err != nil {
+			b.log.Printf("[events] INTERACTION_CREATE unmarshal error: %v", err)
 			return
 		}
 		for _, h := range d.onInteractionCreate {
 			h := h
-			go h(b, &e)
+			safeGo(b, func() { h(b, &e) })
 		}
 
 	case "GUILD_MEMBER_ADD":
@@ -317,11 +350,12 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 		}
 		var e GuildMemberAddEvent
 		if err := json.Unmarshal(data, &e); err != nil {
+			b.log.Printf("[events] GUILD_MEMBER_ADD unmarshal error: %v", err)
 			return
 		}
 		for _, h := range d.onGuildMemberAdd {
 			h := h
-			go h(b, &e)
+			safeGo(b, func() { h(b, &e) })
 		}
 
 	case "GUILD_MEMBER_REMOVE":
@@ -330,11 +364,12 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 		}
 		var e GuildMemberRemoveEvent
 		if err := json.Unmarshal(data, &e); err != nil {
+			b.log.Printf("[events] GUILD_MEMBER_REMOVE unmarshal error: %v", err)
 			return
 		}
 		for _, h := range d.onGuildMemberRemove {
 			h := h
-			go h(b, &e)
+			safeGo(b, func() { h(b, &e) })
 		}
 
 	case "GUILD_MEMBER_UPDATE":
@@ -343,11 +378,12 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 		}
 		var e GuildMemberUpdateEvent
 		if err := json.Unmarshal(data, &e); err != nil {
+			b.log.Printf("[events] GUILD_MEMBER_UPDATE unmarshal error: %v", err)
 			return
 		}
 		for _, h := range d.onGuildMemberUpdate {
 			h := h
-			go h(b, &e)
+			safeGo(b, func() { h(b, &e) })
 		}
 
 	case "GUILD_BAN_ADD":
@@ -356,11 +392,12 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 		}
 		var e GuildBanAddEvent
 		if err := json.Unmarshal(data, &e); err != nil {
+			b.log.Printf("[events] GUILD_BAN_ADD unmarshal error: %v", err)
 			return
 		}
 		for _, h := range d.onGuildBanAdd {
 			h := h
-			go h(b, &e)
+			safeGo(b, func() { h(b, &e) })
 		}
 
 	case "GUILD_BAN_REMOVE":
@@ -369,11 +406,16 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 		}
 		var e GuildBanRemoveEvent
 		if err := json.Unmarshal(data, &e); err != nil {
+			b.log.Printf("[events] GUILD_BAN_REMOVE unmarshal error: %v", err)
 			return
 		}
 		for _, h := range d.onGuildBanRemove {
 			h := h
-			go h(b, &e)
+			safeGo(b, func() { h(b, &e) })
 		}
+
+	default:
+		// Unknown events are silently ignored. This keeps the bot forward-compatible
+		// as Discord adds new event types without requiring framework updates.
 	}
 }

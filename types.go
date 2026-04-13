@@ -84,12 +84,16 @@ func (u *User) Mention() string { return "<@" + u.ID + ">" }
 
 // Member represents a guild member (User + guild-specific data).
 type Member struct {
-	User     *User    `json:"user"`
-	Nick     string   `json:"nick"`
-	Roles    []string `json:"roles"`
-	JoinedAt string   `json:"joined_at"`
-	Deaf     bool     `json:"deaf"`
-	Mute     bool     `json:"mute"`
+	User                       *User    `json:"user"`
+	Nick                       string   `json:"nick"`
+	Roles                      []string `json:"roles"`
+	JoinedAt                   string   `json:"joined_at"`
+	PremiumSince               string   `json:"premium_since"`
+	Deaf                       bool     `json:"deaf"`
+	Mute                       bool     `json:"mute"`
+	Pending                    bool     `json:"pending"`
+	Permissions                string   `json:"permissions"`
+	CommunicationDisabledUntil string   `json:"communication_disabled_until"`
 }
 
 // Role represents a Discord role.
@@ -255,13 +259,15 @@ type MessageSend struct {
 	Content          string            `json:"content,omitempty"`
 	TTS              bool              `json:"tts,omitempty"`
 	Embeds           []Embed           `json:"embeds,omitempty"`
+	Components       []Component       `json:"components,omitempty"`
 	MessageReference *MessageReference `json:"message_reference,omitempty"`
 }
 
 // MessageEdit is the payload for editing an existing message.
 type MessageEdit struct {
-	Content *string `json:"content,omitempty"`
-	Embeds  []Embed `json:"embeds,omitempty"`
+	Content    *string     `json:"content,omitempty"`
+	Embeds     []Embed     `json:"embeds,omitempty"`
+	Components []Component `json:"components,omitempty"`
 }
 
 // ---------------------------------------------------------------------------

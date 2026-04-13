@@ -156,17 +156,44 @@ type Component struct {
 }
 
 // ActionRow wraps a slice of components in a single ActionRow component.
+// An ActionRow may contain up to 5 buttons, or 1 select menu.
 func ActionRow(children ...Component) Component {
 	return Component{Type: ComponentTypeActionRow, Components: children}
 }
 
 // StringSelect builds a string-select component.
+// Users can pick one value from the provided options list.
 func StringSelect(customID, placeholder string, options []SelectMenuOption) Component {
 	return Component{
 		Type:        ComponentTypeStringSelect,
 		CustomID:    customID,
 		Placeholder: placeholder,
 		Options:     options,
+	}
+}
+
+// Button builds a non-link button component.
+// style is one of the ButtonStyle* constants; disabled controls whether it is
+// greyed out.
+func Button(label, customID string, style int, disabled bool) Component {
+	return Component{
+		Type:     ComponentTypeButton,
+		Label:    label,
+		CustomID: customID,
+		Style:    style,
+		Disabled: disabled,
+	}
+}
+
+// LinkButton builds a link-style button that navigates to a URL when clicked.
+// Link buttons do not fire INTERACTION_CREATE events and do not need a customID.
+func LinkButton(label, url string, disabled bool) Component {
+	return Component{
+		Type:     ComponentTypeButton,
+		Label:    label,
+		URL:      url,
+		Style:    ButtonStyleLink,
+		Disabled: disabled,
 	}
 }
 
@@ -239,7 +266,41 @@ type InteractionResponse struct {
 }
 
 // ---------------------------------------------------------------------------
-// REST — application commands
+// REST — global application commands
+// ---------------------------------------------------------------------------
+
+// GetGlobalCommands returns all globally-registered application commands.
+// Global commands are available in all guilds and DMs; propagation can take
+// up to an hour — use guild commands during development.
+func (r *RestClient) GetGlobalCommands(appID string) ([]ApplicationCommand, error) {
+	var result []ApplicationCommand
+	if err := r.get("/applications/"+appID+"/commands", &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// CreateGlobalCommand registers a single global application command.
+func (r *RestClient) CreateGlobalCommand(appID string, cmd ApplicationCommand) (*ApplicationCommand, error) {
+	var result ApplicationCommand
+	if err := r.post("/applications/"+appID+"/commands", cmd, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// BulkOverwriteGlobalCommands atomically replaces all global application commands.
+// Pass an empty slice to remove all global commands.
+func (r *RestClient) BulkOverwriteGlobalCommands(appID string, cmds []ApplicationCommand) ([]ApplicationCommand, error) {
+	var result []ApplicationCommand
+	if err := r.do(http.MethodPut, "/applications/"+appID+"/commands", cmds, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// ---------------------------------------------------------------------------
+// REST — guild application commands
 // ---------------------------------------------------------------------------
 
 // BulkOverwriteGuildCommands atomically replaces all guild-scoped commands.
@@ -262,6 +323,7 @@ func (r *RestClient) GetGuildCommands(appID, guildID string) ([]ApplicationComma
 }
 
 // CreateGuildCommand registers a single guild-scoped application command.
+// Guild commands are available immediately — prefer these during development.
 func (r *RestClient) CreateGuildCommand(appID, guildID string, cmd ApplicationCommand) (*ApplicationCommand, error) {
 	var result ApplicationCommand
 	if err := r.post("/applications/"+appID+"/guilds/"+guildID+"/commands", cmd, &result); err != nil {
@@ -288,4 +350,32 @@ func (r *RestClient) EditInteractionResponse(appID, token string, data Interacti
 // DeleteInteractionResponse deletes the original interaction response.
 func (r *RestClient) DeleteInteractionResponse(appID, token string) error {
 	return r.delete("/webhooks/" + appID + "/" + token + "/messages/@original")
+}
+
+// CreateFollowupMessage sends a follow-up message after an interaction has
+// already been acknowledged. Follow-ups can be sent up to 15 minutes after
+// the interaction token was received.
+//
+// Set Flags: MessageFlagEphemeral in data to make the follow-up ephemeral.
+func (r *RestClient) CreateFollowupMessage(appID, token string, data InteractionResponseData) (*Message, error) {
+	var m Message
+	if err := r.post("/webhooks/"+appID+"/"+token, data, &m); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// EditFollowupMessage edits a previously sent follow-up message.
+// messageID is the ID of the follow-up message to edit.
+func (r *RestClient) EditFollowupMessage(appID, token, messageID string, data InteractionResponseData) (*Message, error) {
+	var m Message
+	if err := r.patch("/webhooks/"+appID+"/"+token+"/messages/"+messageID, data, &m); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// DeleteFollowupMessage deletes a follow-up message sent with CreateFollowupMessage.
+func (r *RestClient) DeleteFollowupMessage(appID, token, messageID string) error {
+	return r.delete("/webhooks/" + appID + "/" + token + "/messages/" + messageID)
 }
