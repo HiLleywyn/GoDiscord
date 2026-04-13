@@ -1,9 +1,12 @@
-// Package discord is a custom Discord bot framework written entirely in Go
-// with zero external dependencies.
+// Package discord is a zero-dependency Discord bot framework written in pure Go.
 //
-// Quick start:
+// It implements Discord Gateway v10 and provides a typed event system,
+// prefix-based command framework, slash command / interaction support, and a
+// complete REST client — all without any external dependencies.
 //
-//	bot := discord.New("Bot TOKEN", discord.IntentsDefault)
+// # Quick Start
+//
+//	bot := discord.New("YOUR_TOKEN", discord.IntentGuilds|discord.IntentGuildMessages)
 //
 //	bot.OnReady(func(b *discord.Bot, e *discord.ReadyEvent) {
 //	    fmt.Println("Logged in as", e.User.Tag())
@@ -16,9 +19,18 @@
 //	})
 //
 //	log.Fatal(bot.Run())
+//
+// # Functional Options
+//
+// Pass Option values to New() to customise the bot at construction time:
+//
+//	bot := discord.New(token, intents,
+//	    discord.WithLogger(myZapLogger),
+//	)
 package discord
 
 import (
+	"strings"
 	"sync"
 )
 
@@ -32,6 +44,7 @@ type Bot struct {
 	token           string
 	intents         Intents
 	initialPresence *presence
+	log             Logger
 
 	gateway  *gateway
 	events   *eventDispatcher
@@ -43,15 +56,33 @@ type Bot struct {
 
 // New creates a new Bot with the given token and gateway intents.
 //
-// The token should NOT include the "Bot " prefix — the framework adds it.
-func New(token string, intents Intents) *Bot {
+// The token should NOT include the "Bot " prefix — the framework adds it
+// automatically wherever required.
+//
+// Pass zero or more Option values to customise the bot:
+//
+//	bot := discord.New(token, intents, discord.WithLogger(myLogger))
+//
+// New panics if token is empty.
+func New(token string, intents Intents, opts ...Option) *Bot {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		panic("discord: token must not be empty")
+	}
+
 	b := &Bot{
 		token:   token,
 		intents: intents,
 		events:  newEventDispatcher(),
+		log:     defaultLogger,
 	}
-	b.Rest = newRestClient(token)
+	b.Rest = newRestClient(token, b)
 	b.gateway = newGateway(b)
+
+	for _, opt := range opts {
+		opt(b)
+	}
+
 	return b
 }
 
@@ -122,7 +153,8 @@ func (b *Bot) OnGuildMemberAdd(h GuildMemberAddHandler) *Bot {
 	return b
 }
 
-// OnGuildMemberRemove registers a handler called when a user leaves or is removed from a guild.
+// OnGuildMemberRemove registers a handler called when a user leaves or is
+// removed from a guild.
 func (b *Bot) OnGuildMemberRemove(h GuildMemberRemoveHandler) *Bot {
 	b.events.addGuildMemberRemove(h)
 	return b
@@ -151,8 +183,8 @@ func (b *Bot) OnGuildBanRemove(h GuildBanRemoveHandler) *Bot {
 // Command framework
 // ---------------------------------------------------------------------------
 
-// SetPrefix enables the built-in command handler with the given prefix string
-// (e.g. "!" or ">>"). Must be called before Run().
+// SetPrefix enables the built-in prefix command handler with the given prefix
+// string (e.g. "!" or ">>"). Must be called before Run().
 func (b *Bot) SetPrefix(prefix string) *Bot {
 	b.mu.Lock()
 	b.commands = newCommandHandler(prefix)
@@ -160,15 +192,14 @@ func (b *Bot) SetPrefix(prefix string) *Bot {
 	return b
 }
 
-// AddCommand registers a command. SetPrefix must be called first.
+// AddCommand registers a command. If SetPrefix was never called the prefix
+// defaults to "!".
 func (b *Bot) AddCommand(cmd *Command) *Bot {
 	b.mu.RLock()
 	ch := b.commands
 	b.mu.RUnlock()
 
 	if ch == nil {
-		// Auto-create handler with empty prefix so callers don't have to
-		// call SetPrefix if they just want AddCommand.
 		b.mu.Lock()
 		if b.commands == nil {
 			b.commands = newCommandHandler("!")
@@ -180,7 +211,7 @@ func (b *Bot) AddCommand(cmd *Command) *Bot {
 	return b
 }
 
-// Commands returns a slice of all registered commands.
+// Commands returns a slice of all registered commands (no alias duplicates).
 func (b *Bot) Commands() []*Command {
 	b.mu.RLock()
 	ch := b.commands
@@ -192,13 +223,43 @@ func (b *Bot) Commands() []*Command {
 }
 
 // ---------------------------------------------------------------------------
+// Middleware
+// ---------------------------------------------------------------------------
+
+// Use registers one or more middleware functions that wrap every command
+// handler. Middleware is applied in registration order, so the first Use()
+// call wraps the outermost layer.
+//
+//	bot.Use(func(next discord.HandlerFunc) discord.HandlerFunc {
+//	    return func(ctx *discord.CommandContext) {
+//	        log.Printf("[cmd] %s by %s", ctx.Command.Name, ctx.Message.Author.Username)
+//	        next(ctx)
+//	    }
+//	})
+func (b *Bot) Use(mw ...MiddlewareFunc) *Bot {
+	b.mu.RLock()
+	ch := b.commands
+	b.mu.RUnlock()
+
+	if ch == nil {
+		b.mu.Lock()
+		if b.commands == nil {
+			b.commands = newCommandHandler("!")
+		}
+		ch = b.commands
+		b.mu.Unlock()
+	}
+	ch.use(mw...)
+	return b
+}
+
+// ---------------------------------------------------------------------------
 // Presence
 // ---------------------------------------------------------------------------
 
-// SetActivity sets the bot's activity (e.g. "Playing Chess").
-// activityType is one of the Activity* constants (ActivityPlaying, etc.).
-// Must be called before Run() to take effect on startup; can also be called
-// after Run() to update live.
+// SetActivity sets the bot's displayed activity (e.g. "Watching over the server").
+// activityType is one of the Activity* constants.
+// Call before Run() to set the startup presence; or after Run() to update live.
 func (b *Bot) SetActivity(name string, activityType int) *Bot {
 	p := presence{
 		Status: "online",
@@ -210,14 +271,13 @@ func (b *Bot) SetActivity(name string, activityType int) *Bot {
 	b.initialPresence = &p
 	b.mu.Unlock()
 
-	// If already connected, push the update immediately.
 	if b.gateway != nil && b.gateway.conn != nil {
 		_ = b.gateway.updatePresence(p)
 	}
 	return b
 }
 
-// SetStatus sets the bot's online status ("online", "idle", "dnd", "invisible").
+// SetStatus sets the bot's online status: "online", "idle", "dnd", or "invisible".
 func (b *Bot) SetStatus(status string) *Bot {
 	b.mu.Lock()
 	if b.initialPresence == nil {
@@ -238,7 +298,7 @@ func (b *Bot) SetStatus(status string) *Bot {
 // Self
 // ---------------------------------------------------------------------------
 
-// Self returns the bot's own User object, available after the Ready event.
+// Self returns the bot's own User object, populated after the Ready event.
 // Returns nil if called before the bot has connected.
 func (b *Bot) Self() *User {
 	b.mu.RLock()
@@ -247,21 +307,33 @@ func (b *Bot) Self() *User {
 }
 
 // ---------------------------------------------------------------------------
+// Logging
+// ---------------------------------------------------------------------------
+
+// Log returns the active logger. Always non-nil.
+func (b *Bot) Log() Logger {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.log
+}
+
+// ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-// Run connects to the Discord Gateway and blocks until Stop() is called or
-// an unrecoverable error occurs.
+// Run connects to the Discord Gateway and blocks until Stop() is called or an
+// unrecoverable error occurs. It is equivalent to calling gateway.start() and
+// then waiting on the done channel.
 func (b *Bot) Run() error {
 	if err := b.gateway.start(); err != nil {
 		return err
 	}
-	// Block until the gateway shuts down.
 	<-b.gateway.doneCh
 	return nil
 }
 
-// Stop gracefully disconnects from the Discord Gateway.
+// Stop gracefully disconnects from the Discord Gateway. Run() returns after
+// Stop() completes.
 func (b *Bot) Stop() {
 	b.gateway.stop()
 }
