@@ -268,6 +268,74 @@ type MessageEdit struct {
 // Gateway internals
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Moderation / Guild management objects
+// ---------------------------------------------------------------------------
+
+// Ban represents a guild ban entry.
+type Ban struct {
+	Reason string `json:"reason"`
+	User   *User  `json:"user"`
+}
+
+// PermissionOverwrite is a channel-level permission override for a role or member.
+type PermissionOverwrite struct {
+	ID    Snowflake `json:"id"`
+	Type  int       `json:"type"` // 0 = role, 1 = member
+	Allow string    `json:"allow"`
+	Deny  string    `json:"deny"`
+}
+
+// GuildMemberAddEvent is dispatched when a user joins a guild.
+// Embeds all Member fields plus the GuildID.
+type GuildMemberAddEvent struct {
+	GuildID  Snowflake `json:"guild_id"`
+	User     *User     `json:"user"`
+	Nick     string    `json:"nick"`
+	Roles    []string  `json:"roles"`
+	JoinedAt string    `json:"joined_at"`
+	Deaf     bool      `json:"deaf"`
+	Mute     bool      `json:"mute"`
+	Pending  bool      `json:"pending"`
+}
+
+// GuildMemberRemoveEvent is dispatched when a user leaves (or is kicked/banned from) a guild.
+type GuildMemberRemoveEvent struct {
+	GuildID Snowflake `json:"guild_id"`
+	User    *User     `json:"user"`
+}
+
+// GuildMemberUpdateEvent is dispatched when a guild member's state changes
+// (roles, nick, timeout, etc.).
+type GuildMemberUpdateEvent struct {
+	GuildID                    Snowflake `json:"guild_id"`
+	Roles                      []string  `json:"roles"`
+	User                       *User     `json:"user"`
+	Nick                       string    `json:"nick"`
+	JoinedAt                   string    `json:"joined_at"`
+	PremiumSince               string    `json:"premium_since"`
+	Deaf                       bool      `json:"deaf"`
+	Mute                       bool      `json:"mute"`
+	Pending                    bool      `json:"pending"`
+	CommunicationDisabledUntil string    `json:"communication_disabled_until"`
+}
+
+// GuildBanAddEvent is dispatched when a user is banned from a guild.
+type GuildBanAddEvent struct {
+	GuildID Snowflake `json:"guild_id"`
+	User    *User     `json:"user"`
+}
+
+// GuildBanRemoveEvent is dispatched when a user is unbanned from a guild.
+type GuildBanRemoveEvent struct {
+	GuildID Snowflake `json:"guild_id"`
+	User    *User     `json:"user"`
+}
+
+// ---------------------------------------------------------------------------
+// Gateway internals
+// ---------------------------------------------------------------------------
+
 // gatewayPayload is the raw envelope sent/received over the Gateway WebSocket.
 type gatewayPayload struct {
 	Op       int             `json:"op"`
