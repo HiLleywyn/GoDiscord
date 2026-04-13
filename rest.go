@@ -7,7 +7,9 @@ package discord
 //   - Failed requests return *APIError with the HTTP status and Discord JSON
 //     error code, so callers can branch with errors.As().
 //   - 429 Too Many Requests is handled transparently: the client sleeps for
-//     Retry-After seconds and retries once.
+//     Retry-After seconds and retries up to maxRateLimitRetries times, then
+//     returns an *APIError with StatusCode == 429 once the budget is
+//     exhausted so callers can back off at a higher level.
 //   - All public methods have descriptive godoc comments.
 
 import (

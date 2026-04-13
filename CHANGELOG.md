@@ -8,7 +8,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-_No unreleased changes at this time._
+### Changed
+
+- **`README.md`** — Expanded the rate-limiting section to name
+  `maxRateLimitRetries` explicitly, reworded the opening paragraph to
+  call out the zero-dependency WebSocket client and panic-recovered
+  dispatcher, added a dedicated "Vendored builds" subsection under
+  Installation, and extended the Security section with the
+  `maxFramePayload` guard and the `url.PathEscape` reaction-path fix.
+- **`rest.go`** — Fixed the stale file-header comment that claimed 429
+  responses were "retried once"; the actual behaviour (3 retries,
+  bounded by `maxRateLimitRetries`) is now documented in the header.
 
 ---
 
