@@ -6,7 +6,7 @@
 [![CI](https://github.com/hilleywyn/godiscord/actions/workflows/ci.yml/badge.svg)](https://github.com/hilleywyn/godiscord/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-GoDiscord implements [Discord Gateway v10](https://discord.com/developers/docs/topics/gateway) and the Discord REST API v10 using only the Go standard library — no `github.com/gorilla/websocket`, no `github.com/bwmarrin/discordgo`, no external packages at all.
+GoDiscord implements [Discord Gateway v10](https://discord.com/developers/docs/topics/gateway) and the Discord REST API v10 using only the Go standard library — no `github.com/gorilla/websocket`, no `github.com/bwmarrin/discordgo`, no external packages at all. It ships its own RFC 6455 WebSocket client and a typed event dispatcher, and every handler runs under panic recovery so one misbehaving callback can't take the bot down.
 
 ---
 
@@ -64,7 +64,22 @@ See [`example/basic/`](example/basic/) for a runnable starter bot and [`example/
 go get github.com/hilleywyn/godiscord
 ```
 
-GoDiscord requires **Go 1.21 or later**.
+GoDiscord requires **Go 1.21 or later**. There are no transitive
+dependencies: after `go get`, `go.sum` lists only GoDiscord itself.
+
+### Vendored builds
+
+For self-contained deployments (e.g. scratch Docker images), vendor
+the module and build with `-mod=vendor`:
+
+```bash
+GOWORK=off go mod tidy
+GOWORK=off go mod vendor
+go build -mod=vendor ./...
+```
+
+The `GOWORK=off` disables workspace mode so a sibling `go.work` file
+doesn't pull in live-dev paths during vendoring.
 
 ---
 
@@ -260,8 +275,9 @@ modPerms := discord.Permission(0).Add(
 GoDiscord handles `429 Too Many Requests` responses automatically. When Discord
 returns a rate-limit response the client reads the `Retry-After` header, sleeps
 for the indicated duration, and retries the request. Retries are capped at
-**3 attempts per call**; if the budget is exhausted a `*APIError` with
-`StatusCode == 429` is returned so you can decide how to proceed.
+**3 attempts per call** (`maxRateLimitRetries`); if the budget is exhausted a
+`*APIError` with `StatusCode == 429` is returned so you can decide how to
+proceed.
 
 ```go
 var apiErr *discord.APIError
@@ -269,6 +285,9 @@ if errors.As(err, &apiErr) && apiErr.IsRateLimit() {
     // retry budget exhausted — back off at a higher level
 }
 ```
+
+The retry budget applies per-request, not per-process, so an occasional
+429 on one endpoint doesn't starve the next call.
 
 ## Error Handling
 
@@ -358,7 +377,8 @@ intent** (`GuildMembers`, `GuildPresences`, `MessageContent`) is declared in
 code but not enabled in the Developer Portal. Go to
 [Discord Developer Portal](https://discord.com/developers/applications) →
 your application → **Bot** → **Privileged Gateway Intents** and enable the
-intents your bot requests.
+intents your bot requests. GoDiscord surfaces the 4014 close code in the
+gateway log so it's straightforward to recognise in traces.
 
 ### Messages are received but `m.Content` is always empty
 
@@ -393,10 +413,16 @@ GoDiscord is a framework library. Its security posture:
 - **No SQL, no shell execution** — there is no injection surface beyond what
   bot code introduces itself.
 - **TLS only** — the Gateway and REST client connect exclusively over TLS.
-- **Bounded allocation** — WebSocket frame payloads are capped at 64 MiB to
-  prevent memory-exhaustion attacks from a compromised gateway connection.
-- **Bounded retries** — Rate-limit retries are capped to prevent infinite
-  recursion from a non-compliant server.
+- **Bounded allocation** — WebSocket frame payloads are capped at 64 MiB
+  (`maxFramePayload`) to prevent memory-exhaustion attacks from a
+  compromised gateway connection. Negative payload lengths (8-byte length
+  field with its high bit set) are rejected before allocation.
+- **Bounded retries** — Rate-limit retries are capped at
+  `maxRateLimitRetries` to prevent infinite recursion from a non-compliant
+  server.
+- **Path-safe REST** — `AddReaction` and `RemoveReaction` pass the emoji
+  parameter through `url.PathEscape`, blocking path-injection via a
+  crafted emoji string.
 - **Token isolation** — The bot token is stored in an unexported field and
   never logged; it appears only in `Authorization` headers.
 
