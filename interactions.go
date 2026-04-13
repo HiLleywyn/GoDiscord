@@ -98,12 +98,12 @@ type ApplicationCommandOptionChoice struct {
 
 // ApplicationCommandOption describes one parameter of a slash command.
 type ApplicationCommandOption struct {
-	Type        ApplicationCommandOptionType      `json:"type"`
-	Name        string                            `json:"name"`
-	Description string                            `json:"description"`
-	Required    bool                              `json:"required,omitempty"`
-	Choices     []ApplicationCommandOptionChoice  `json:"choices,omitempty"`
-	Options     []ApplicationCommandOption        `json:"options,omitempty"`
+	Type        ApplicationCommandOptionType     `json:"type"`
+	Name        string                           `json:"name"`
+	Description string                           `json:"description"`
+	Required    bool                             `json:"required,omitempty"`
+	Choices     []ApplicationCommandOptionChoice `json:"choices,omitempty"`
+	Options     []ApplicationCommandOption       `json:"options,omitempty"`
 }
 
 // ApplicationCommand is the top-level structure for a Discord slash command.

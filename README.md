@@ -3,6 +3,7 @@
 > A zero-dependency Discord bot framework written in 100% pure Go.
 
 [![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)](https://go.dev)
+[![CI](https://github.com/hilleywyn/godiscord/actions/workflows/ci.yml/badge.svg)](https://github.com/hilleywyn/godiscord/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 GoDiscord implements [Discord Gateway v10](https://discord.com/developers/docs/topics/gateway) and the Discord REST API v10 using only the Go standard library — no `github.com/gorilla/websocket`, no `github.com/bwmarrin/discordgo`, no external packages at all.
@@ -226,9 +227,19 @@ components := []discord.Component{
 ## Permissions
 
 ```go
+// Parse the decimal string Discord sends for members and roles.
+perms, err := discord.ParsePermission(member.Permissions)
+if err != nil {
+    // member.Permissions was empty or malformed
+}
+
 // Check whether a member has both KickMembers and BanMembers.
-perms := discord.Permission(member.Permissions)
 if perms.Has(discord.PermKickMembers, discord.PermBanMembers) {
+    // ...
+}
+
+// Check whether a member has at least one of several flags.
+if perms.Any(discord.PermManageMessages, discord.PermAdministrator) {
     // ...
 }
 
@@ -241,6 +252,21 @@ modPerms := discord.Permission(0).Add(
 ```
 
 ---
+
+## Rate Limiting
+
+GoDiscord handles `429 Too Many Requests` responses automatically. When Discord
+returns a rate-limit response the client reads the `Retry-After` header, sleeps
+for the indicated duration, and retries the request. Retries are capped at
+**3 attempts per call**; if the budget is exhausted a `*APIError` with
+`StatusCode == 429` is returned so you can decide how to proceed.
+
+```go
+var apiErr *discord.APIError
+if errors.As(err, &apiErr) && apiErr.IsRateLimit() {
+    // retry budget exhausted — back off at a higher level
+}
+```
 
 ## Error Handling
 
@@ -256,6 +282,8 @@ if errors.As(err, &apiErr) {
         // user not in guild
     case apiErr.IsForbidden():
         // missing permissions
+    case apiErr.IsServerError():
+        // Discord-side 5xx — retry after a back-off
     case apiErr.Code == discord.ErrCodeMissingPermissions:
         // specific Discord error code
     }
@@ -316,6 +344,63 @@ GOWORK=off go mod tidy
 GOWORK=off go mod vendor
 go build -mod=vendor ./...
 ```
+
+---
+
+## Troubleshooting
+
+### Bot comes online then immediately disconnects
+
+Discord closes the WebSocket with a `4014` close code when a **privileged
+intent** (`GuildMembers`, `GuildPresences`, `MessageContent`) is declared in
+code but not enabled in the Developer Portal. Go to
+[Discord Developer Portal](https://discord.com/developers/applications) →
+your application → **Bot** → **Privileged Gateway Intents** and enable the
+intents your bot requests.
+
+### Messages are received but `m.Content` is always empty
+
+`MessageContent` is a privileged intent (see above). You must both request
+`discord.IntentMessageContent` in `discord.New()` **and** enable it in the
+Developer Portal.
+
+### Bot reconnects repeatedly with "session not resumable"
+
+This is normal after a long outage or when the session sequence number falls
+too far behind. GoDiscord automatically clears the session and re-identifies
+with a fresh `Identify` payload. No action is required.
+
+### `*APIError` with status 429 is returned
+
+GoDiscord automatically retries rate-limited requests up to 3 times. Receiving
+a `429` error means the budget was exhausted. Add a backoff at the call site or
+reduce the frequency of the operation.
+
+### `discord: token must not be empty` panic at startup
+
+`discord.New()` panics if the token string is empty or whitespace-only.
+Ensure `DISCORD_TOKEN` (or however you supply the token) is set in the
+process environment before calling `New()`.
+
+---
+
+## Security
+
+GoDiscord is a framework library. Its security posture:
+
+- **No SQL, no shell execution** — there is no injection surface beyond what
+  bot code introduces itself.
+- **TLS only** — the Gateway and REST client connect exclusively over TLS.
+- **Bounded allocation** — WebSocket frame payloads are capped at 64 MiB to
+  prevent memory-exhaustion attacks from a compromised gateway connection.
+- **Bounded retries** — Rate-limit retries are capped to prevent infinite
+  recursion from a non-compliant server.
+- **Token isolation** — The bot token is stored in an unexported field and
+  never logged; it appears only in `Authorization` headers.
+
+Please report security issues privately via GitHub's
+[Security Advisories](https://github.com/hilleywyn/godiscord/security/advisories/new)
+rather than opening a public issue.
 
 ---
 

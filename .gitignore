@@ -1,0 +1,41 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with 'go test -c'
+*.test
+
+# Output of 'go build'
+/godiscord
+/example/example
+/example/basic/basic
+/example/slash/slash
+
+# Go coverage output
+*.out
+coverage.html
+
+# Dependency directories
+vendor/
+
+# Go workspace files (only the root workspace should be committed intentionally)
+go.work
+go.work.sum
+
+# Environment / secrets
+.env
+*.env
+
+# Editor/IDE directories
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
