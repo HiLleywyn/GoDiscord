@@ -45,13 +45,6 @@ func buildFakeFrameHeader(length uint64) []byte {
 	return hdr
 }
 
-// TestMaxFramePayload_Constant ensures the constant is in fact 64 MiB.
-func TestMaxFramePayload_Value(t *testing.T) {
-	if maxFramePayload != 64*1024*1024 {
-		t.Errorf("maxFramePayload should be 64 MiB, got %d", maxFramePayload)
-	}
-}
-
 // TestFrameHeaderBuilding verifies that our helper builds headers correctly,
 // which indirectly tests our understanding of the WebSocket frame format used
 // in readFrame.

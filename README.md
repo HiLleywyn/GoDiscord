@@ -228,9 +228,11 @@ components := []discord.Component{
 
 ```go
 // Parse the decimal string Discord sends for members and roles.
+// An empty member.Permissions returns (0, nil) - only a non-numeric
+// or out-of-range string produces a non-nil error.
 perms, err := discord.ParsePermission(member.Permissions)
 if err != nil {
-    // member.Permissions was empty or malformed
+    // member.Permissions was malformed (not a base-10 uint64).
 }
 
 // Check whether a member has both KickMembers and BanMembers.
