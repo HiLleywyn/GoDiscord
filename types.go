@@ -50,7 +50,7 @@ const (
 // ActivityType constants for bot presence.
 const (
 	ActivityPlaying   = 0
-	ActivityStreaming  = 1
+	ActivityStreaming = 1
 	ActivityListening = 2
 	ActivityWatching  = 3
 	ActivityCustom    = 4

@@ -81,4 +81,4 @@ func WithLogger(l Logger) Option {
 type NoopLogger struct{}
 
 func (NoopLogger) Printf(string, ...interface{}) {}
-func (NoopLogger) Println(...interface{})         {}
+func (NoopLogger) Println(...interface{})        {}

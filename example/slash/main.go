@@ -107,11 +107,11 @@ func handleCommand(b *discord.Bot, i *discord.Interaction) {
 				Components: []discord.Component{
 					discord.ActionRow(
 						discord.StringSelect("colour:pick", "Choose a colour…", []discord.SelectMenuOption{
-							{Label: "Blurple",  Value: "blurple",  Description: "#5865F2"},
-							{Label: "Green",    Value: "green",    Description: "#57F287"},
-							{Label: "Red",      Value: "red",      Description: "#ED4245"},
-							{Label: "Yellow",   Value: "yellow",   Description: "#FEE75C"},
-							{Label: "Fuchsia",  Value: "fuchsia",  Description: "#EB459E"},
+							{Label: "Blurple", Value: "blurple", Description: "#5865F2"},
+							{Label: "Green", Value: "green", Description: "#57F287"},
+							{Label: "Red", Value: "red", Description: "#ED4245"},
+							{Label: "Yellow", Value: "yellow", Description: "#FEE75C"},
+							{Label: "Fuchsia", Value: "fuchsia", Description: "#EB459E"},
 						}),
 					),
 				},
@@ -130,8 +130,10 @@ func handleCommand(b *discord.Bot, i *discord.Interaction) {
 		if max < 1 {
 			max = 1
 		}
-		// A real implementation would use crypto/rand; this is illustrative.
-		result := (i.ID[len(i.ID)-1] % byte(max)) + 1 // deterministic demo only
+		// Derive a deterministic demo result from the interaction ID's last digit.
+		// A real implementation should use math/rand or crypto/rand.
+		lastDigit := i.ID[len(i.ID)-1]
+		result := int64(lastDigit)%max + 1
 		b.Rest.CreateInteractionResponse(i.ID, i.Token, discord.InteractionResponse{
 			Type: discord.InteractionCallbackTypeChannelMessage,
 			Data: &discord.InteractionResponseData{
@@ -194,8 +196,10 @@ func handleComponent(b *discord.Bot, i *discord.Interaction) {
 			return
 		}
 
+		// Capitalise the colour name without the deprecated strings.Title.
+		displayName := strings.ToUpper(selected[:1]) + selected[1:]
 		embed := discord.Embed{
-			Title:       "Your colour: " + strings.Title(selected),
+			Title:       "Your colour: " + displayName,
 			Description: fmt.Sprintf("Colour code: `#%06X`", colour),
 			Color:       colour,
 		}
