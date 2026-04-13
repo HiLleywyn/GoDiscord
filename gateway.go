@@ -40,10 +40,10 @@ const (
 
 // Reconnect back-off parameters.
 const (
-	backoffBase   = time.Second      // initial wait
-	backoffMax    = 5 * time.Minute  // cap
-	backoffFactor = 2.0              // multiplier per attempt
-	backoffJitter = 0.2              // ±20 % random jitter
+	backoffBase   = time.Second     // initial wait
+	backoffMax    = 5 * time.Minute // cap
+	backoffFactor = 2.0             // multiplier per attempt
+	backoffJitter = 0.2             // ±20 % random jitter
 )
 
 // gateway manages the Discord Gateway connection for a Bot.

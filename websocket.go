@@ -21,6 +21,12 @@ import (
 	"sync"
 )
 
+// maxFramePayload is the largest single WebSocket frame payload we will
+// allocate. Discord's largest payloads are well under 1 MiB in practice; this
+// 64 MiB ceiling prevents a malformed or adversarial frame from exhausting
+// process memory.
+const maxFramePayload = 64 << 20 // 64 MiB
+
 // WebSocket opcodes (RFC 6455 §11.8).
 const (
 	wsOpContinuation byte = 0x0
@@ -172,7 +178,18 @@ func (ws *wsConn) readFrame() (fin bool, opcode byte, payload []byte, err error)
 		if _, err = io.ReadFull(ws.br, ext); err != nil {
 			return
 		}
-		plen = int64(binary.BigEndian.Uint64(ext))
+		raw := binary.BigEndian.Uint64(ext)
+		if raw > maxFramePayload {
+			err = fmt.Errorf("websocket: frame payload %d bytes exceeds limit %d", raw, maxFramePayload)
+			return
+		}
+		plen = int64(raw)
+	}
+
+	// Guard against negative or oversized lengths from the initial byte.
+	if plen < 0 || plen > maxFramePayload {
+		err = fmt.Errorf("websocket: invalid frame payload length %d", plen)
+		return
 	}
 
 	var maskKey [4]byte
