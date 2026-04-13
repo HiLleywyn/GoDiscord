@@ -41,6 +41,25 @@ type (
 
 	// ReactionRemoveHandler is called when a reaction is removed from a message.
 	ReactionRemoveHandler func(*Bot, *MessageReactionRemoveEvent)
+
+	// InteractionCreateHandler is called for every INTERACTION_CREATE event
+	// (slash commands, button clicks, select menus, etc.).
+	InteractionCreateHandler func(*Bot, *Interaction)
+
+	// GuildMemberAddHandler is called when a user joins a guild.
+	GuildMemberAddHandler func(*Bot, *GuildMemberAddEvent)
+
+	// GuildMemberRemoveHandler is called when a user leaves or is removed from a guild.
+	GuildMemberRemoveHandler func(*Bot, *GuildMemberRemoveEvent)
+
+	// GuildMemberUpdateHandler is called when a guild member's state changes.
+	GuildMemberUpdateHandler func(*Bot, *GuildMemberUpdateEvent)
+
+	// GuildBanAddHandler is called when a user is banned from a guild.
+	GuildBanAddHandler func(*Bot, *GuildBanAddEvent)
+
+	// GuildBanRemoveHandler is called when a user is unbanned from a guild.
+	GuildBanRemoveHandler func(*Bot, *GuildBanRemoveEvent)
 )
 
 // ---------------------------------------------------------------------------
@@ -51,14 +70,20 @@ type (
 type eventDispatcher struct {
 	mu sync.RWMutex
 
-	onReady          []ReadyHandler
-	onMessageCreate  []MessageCreateHandler
-	onMessageUpdate  []MessageUpdateHandler
-	onMessageDelete  []MessageDeleteHandler
-	onGuildCreate    []GuildCreateHandler
-	onGuildDelete    []GuildDeleteHandler
-	onReactionAdd    []ReactionAddHandler
-	onReactionRemove []ReactionRemoveHandler
+	onReady             []ReadyHandler
+	onMessageCreate     []MessageCreateHandler
+	onMessageUpdate     []MessageUpdateHandler
+	onMessageDelete     []MessageDeleteHandler
+	onGuildCreate       []GuildCreateHandler
+	onGuildDelete       []GuildDeleteHandler
+	onReactionAdd       []ReactionAddHandler
+	onReactionRemove    []ReactionRemoveHandler
+	onInteractionCreate []InteractionCreateHandler
+	onGuildMemberAdd    []GuildMemberAddHandler
+	onGuildMemberRemove []GuildMemberRemoveHandler
+	onGuildMemberUpdate []GuildMemberUpdateHandler
+	onGuildBanAdd       []GuildBanAddHandler
+	onGuildBanRemove    []GuildBanRemoveHandler
 }
 
 func newEventDispatcher() *eventDispatcher {
@@ -114,6 +139,42 @@ func (d *eventDispatcher) addReactionAdd(h ReactionAddHandler) {
 func (d *eventDispatcher) addReactionRemove(h ReactionRemoveHandler) {
 	d.mu.Lock()
 	d.onReactionRemove = append(d.onReactionRemove, h)
+	d.mu.Unlock()
+}
+
+func (d *eventDispatcher) addInteractionCreate(h InteractionCreateHandler) {
+	d.mu.Lock()
+	d.onInteractionCreate = append(d.onInteractionCreate, h)
+	d.mu.Unlock()
+}
+
+func (d *eventDispatcher) addGuildMemberAdd(h GuildMemberAddHandler) {
+	d.mu.Lock()
+	d.onGuildMemberAdd = append(d.onGuildMemberAdd, h)
+	d.mu.Unlock()
+}
+
+func (d *eventDispatcher) addGuildMemberRemove(h GuildMemberRemoveHandler) {
+	d.mu.Lock()
+	d.onGuildMemberRemove = append(d.onGuildMemberRemove, h)
+	d.mu.Unlock()
+}
+
+func (d *eventDispatcher) addGuildMemberUpdate(h GuildMemberUpdateHandler) {
+	d.mu.Lock()
+	d.onGuildMemberUpdate = append(d.onGuildMemberUpdate, h)
+	d.mu.Unlock()
+}
+
+func (d *eventDispatcher) addGuildBanAdd(h GuildBanAddHandler) {
+	d.mu.Lock()
+	d.onGuildBanAdd = append(d.onGuildBanAdd, h)
+	d.mu.Unlock()
+}
+
+func (d *eventDispatcher) addGuildBanRemove(h GuildBanRemoveHandler) {
+	d.mu.Lock()
+	d.onGuildBanRemove = append(d.onGuildBanRemove, h)
 	d.mu.Unlock()
 }
 
@@ -233,6 +294,84 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 			return
 		}
 		for _, h := range d.onReactionRemove {
+			h := h
+			go h(b, &e)
+		}
+
+	case "INTERACTION_CREATE":
+		if len(d.onInteractionCreate) == 0 {
+			return
+		}
+		var e Interaction
+		if err := json.Unmarshal(data, &e); err != nil {
+			return
+		}
+		for _, h := range d.onInteractionCreate {
+			h := h
+			go h(b, &e)
+		}
+
+	case "GUILD_MEMBER_ADD":
+		if len(d.onGuildMemberAdd) == 0 {
+			return
+		}
+		var e GuildMemberAddEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return
+		}
+		for _, h := range d.onGuildMemberAdd {
+			h := h
+			go h(b, &e)
+		}
+
+	case "GUILD_MEMBER_REMOVE":
+		if len(d.onGuildMemberRemove) == 0 {
+			return
+		}
+		var e GuildMemberRemoveEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return
+		}
+		for _, h := range d.onGuildMemberRemove {
+			h := h
+			go h(b, &e)
+		}
+
+	case "GUILD_MEMBER_UPDATE":
+		if len(d.onGuildMemberUpdate) == 0 {
+			return
+		}
+		var e GuildMemberUpdateEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return
+		}
+		for _, h := range d.onGuildMemberUpdate {
+			h := h
+			go h(b, &e)
+		}
+
+	case "GUILD_BAN_ADD":
+		if len(d.onGuildBanAdd) == 0 {
+			return
+		}
+		var e GuildBanAddEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return
+		}
+		for _, h := range d.onGuildBanAdd {
+			h := h
+			go h(b, &e)
+		}
+
+	case "GUILD_BAN_REMOVE":
+		if len(d.onGuildBanRemove) == 0 {
+			return
+		}
+		var e GuildBanRemoveEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return
+		}
+		for _, h := range d.onGuildBanRemove {
 			h := h
 			go h(b, &e)
 		}
