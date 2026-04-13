@@ -8,8 +8,12 @@ package discord
 //
 // Quick usage:
 //
-//	// Check whether a member can send messages and embed links.
-//	perms := discord.Permission(member.Permissions)
+//	// Discord delivers member permissions as a base-10 string. Use
+//	// ParsePermission to convert it to a Permission bitfield safely.
+//	perms, err := discord.ParsePermission(member.Permissions)
+//	if err != nil {
+//	    // member.Permissions was malformed (not a base-10 uint64).
+//	}
 //	if perms.Has(discord.PermSendMessages, discord.PermEmbedLinks) {
 //	    // ...
 //	}
