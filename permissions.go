@@ -23,6 +23,7 @@ package discord
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -232,6 +233,34 @@ const PermModerator = PermDefaultText |
 // ---------------------------------------------------------------------------
 // Methods
 // ---------------------------------------------------------------------------
+
+// ParsePermission parses the decimal string that Discord sends for member and
+// role permissions (e.g. "2147483651") and returns the corresponding
+// Permission value. It is more robust than fmt.Sscanf and returns a clear
+// error on invalid input.
+//
+//	perms, err := discord.ParsePermission(member.Permissions)
+//	if err == nil && perms.Has(discord.PermBanMembers) { … }
+func ParsePermission(s string) (Permission, error) {
+	if s == "" {
+		return 0, nil
+	}
+	v, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("discord: invalid permission string %q: %w", s, err)
+	}
+	return Permission(v), nil
+}
+
+// MustParsePermission is like ParsePermission but panics on error.
+// Use only in initialisation contexts where the input is a compile-time constant.
+func MustParsePermission(s string) Permission {
+	p, err := ParsePermission(s)
+	if err != nil {
+		panic(err)
+	}
+	return p
+}
 
 // Has reports whether p contains all of the provided flags.
 // Returns true only if every flag in flags is set in p.

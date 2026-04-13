@@ -122,10 +122,7 @@ func main() {
 				return
 			}
 
-			perms := discord.Permission(0)
-			if member.Permissions != "" {
-				fmt.Sscanf(member.Permissions, "%d", (*uint64)(&perms))
-			}
+			perms, _ := discord.ParsePermission(member.Permissions)
 
 			embed := discord.Embed{
 				Title: member.User.Tag(),
@@ -135,6 +132,7 @@ func main() {
 					{Name: "Joined", Value: member.JoinedAt, Inline: true},
 					{Name: "Roles", Value: fmt.Sprintf("%d roles", len(member.Roles)), Inline: true},
 					{Name: "Bot", Value: fmt.Sprintf("%v", member.User.Bot), Inline: true},
+					{Name: "Admin", Value: fmt.Sprintf("%v", perms.IsAdmin()), Inline: true},
 				},
 				Footer: &discord.EmbedFooter{Text: "GoDiscord basic example"},
 			}

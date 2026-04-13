@@ -16,9 +16,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 )
+
+// maxRateLimitRetries is the maximum number of times a single REST call will
+// be retried after a 429 Too Many Requests response. This prevents an infinite
+// recursion when Discord continuously rate-limits a request.
+const maxRateLimitRetries = 3
 
 const apiBase = "https://discord.com/api/v10"
 
@@ -49,9 +55,13 @@ type discordErrorBody struct {
 }
 
 // do performs an HTTP request and decodes the JSON response into out (may be nil).
-// On non-2xx responses it returns *APIError. 429s are retried once after
-// sleeping for Retry-After.
+// On non-2xx responses it returns *APIError. 429 Too Many Requests responses
+// are retried up to maxRateLimitRetries times after sleeping for Retry-After.
 func (r *RestClient) do(method, path string, body interface{}, out interface{}) error {
+	return r.doWithRetry(method, path, body, out, 0)
+}
+
+func (r *RestClient) doWithRetry(method, path string, body interface{}, out interface{}, retries int) error {
 	var bodyReader io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -77,18 +87,27 @@ func (r *RestClient) do(method, path string, body interface{}, out interface{}) 
 	}
 	defer resp.Body.Close()
 
-	// Transparent rate-limit handling: sleep and retry once.
+	// Transparent rate-limit handling: sleep and retry up to maxRateLimitRetries.
 	if resp.StatusCode == http.StatusTooManyRequests {
+		if retries >= maxRateLimitRetries {
+			return &APIError{
+				Method:     method,
+				Path:       path,
+				StatusCode: resp.StatusCode,
+				Message:    "rate limit retry budget exhausted",
+			}
+		}
 		retryAfter := resp.Header.Get("Retry-After")
 		secs, _ := strconv.ParseFloat(retryAfter, 64)
 		if secs <= 0 {
 			secs = 1
 		}
 		if r.bot != nil {
-			r.bot.log.Printf("[rest] rate limited on %s %s — retrying in %.2fs", method, path, secs)
+			r.bot.log.Printf("[rest] rate limited on %s %s — retrying in %.2fs (attempt %d/%d)",
+				method, path, secs, retries+1, maxRateLimitRetries)
 		}
 		time.Sleep(time.Duration(secs*1000) * time.Millisecond)
-		return r.do(method, path, body, out)
+		return r.doWithRetry(method, path, body, out, retries+1)
 	}
 
 	if resp.StatusCode == http.StatusNoContent {
@@ -105,10 +124,11 @@ func (r *RestClient) do(method, path string, body interface{}, out interface{}) 
 			Message:    string(raw),
 		}
 		// Try to decode the Discord JSON error body for the code and message.
-		var body discordErrorBody
-		if err := json.Unmarshal(raw, &body); err == nil && body.Code != 0 {
-			apiErr.Code = body.Code
-			apiErr.Message = body.Message
+		// Use errBody to avoid shadowing the outer body parameter.
+		var errBody discordErrorBody
+		if err := json.Unmarshal(raw, &errBody); err == nil && errBody.Code != 0 {
+			apiErr.Code = errBody.Code
+			apiErr.Message = errBody.Message
 		}
 		return apiErr
 	}
@@ -233,14 +253,16 @@ func (r *RestClient) UnpinMessage(channelID, messageID string) error {
 // ---------------------------------------------------------------------------
 
 // AddReaction adds a reaction emoji to a message.
-// emoji should be the unicode character (e.g. "👍") or "name:id" for custom emojis.
+// emoji should be a unicode character (e.g. "👍") or "name:id" for custom
+// emojis. The value is URL-encoded before being placed in the path.
 func (r *RestClient) AddReaction(channelID, messageID, emoji string) error {
-	return r.put("/channels/"+channelID+"/messages/"+messageID+"/reactions/"+emoji+"/@me", nil)
+	return r.put("/channels/"+channelID+"/messages/"+messageID+"/reactions/"+url.PathEscape(emoji)+"/@me", nil)
 }
 
 // RemoveReaction removes the bot's own reaction from a message.
+// emoji should be a unicode character (e.g. "👍") or "name:id" for custom emojis.
 func (r *RestClient) RemoveReaction(channelID, messageID, emoji string) error {
-	return r.delete("/channels/" + channelID + "/messages/" + messageID + "/reactions/" + emoji + "/@me")
+	return r.delete("/channels/" + channelID + "/messages/" + messageID + "/reactions/" + url.PathEscape(emoji) + "/@me")
 }
 
 // ---------------------------------------------------------------------------
@@ -311,8 +333,15 @@ func (r *RestClient) KickMember(guildID, userID string) error {
 }
 
 // BanMember bans a user from a guild.
-// deleteMessageDays is the number of days of message history to delete (0–7).
+// deleteMessageDays is the number of days of message history to purge (0–7).
+// Values outside the 0–7 range are clamped to the nearest valid boundary.
 func (r *RestClient) BanMember(guildID, userID string, deleteMessageDays int) error {
+	if deleteMessageDays < 0 {
+		deleteMessageDays = 0
+	}
+	if deleteMessageDays > 7 {
+		deleteMessageDays = 7
+	}
 	return r.put("/guilds/"+guildID+"/bans/"+userID,
 		map[string]int{"delete_message_days": deleteMessageDays})
 }
@@ -413,8 +442,12 @@ func (r *RestClient) GetGuildBans(guildID string) ([]Ban, error) {
 // Messages — bulk delete and listing
 // ---------------------------------------------------------------------------
 
-// GetMessages fetches up to limit (max 100) recent messages from a channel.
+// GetMessages fetches up to limit (1–100) recent messages from a channel.
+// limit is clamped to the range [1, 100].
 func (r *RestClient) GetMessages(channelID string, limit int) ([]Message, error) {
+	if limit < 1 {
+		limit = 1
+	}
 	if limit > 100 {
 		limit = 100
 	}
@@ -428,7 +461,14 @@ func (r *RestClient) GetMessages(channelID string, limit int) ([]Message, error)
 
 // BulkDeleteMessages deletes 2–100 messages at once.
 // Messages older than 14 days cannot be bulk-deleted (Discord restriction).
+// Returns an error immediately if fewer than 2 or more than 100 IDs are provided.
 func (r *RestClient) BulkDeleteMessages(channelID string, messageIDs []string) error {
+	if len(messageIDs) < 2 {
+		return fmt.Errorf("discord: BulkDeleteMessages requires at least 2 message IDs (got %d)", len(messageIDs))
+	}
+	if len(messageIDs) > 100 {
+		return fmt.Errorf("discord: BulkDeleteMessages accepts at most 100 message IDs (got %d)", len(messageIDs))
+	}
 	return r.post("/channels/"+channelID+"/messages/bulk-delete",
 		map[string]interface{}{"messages": messageIDs}, nil)
 }

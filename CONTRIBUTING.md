@@ -22,11 +22,12 @@ cd GoDiscord
 # Verify the build — no setup required
 GOWORK=off go build .
 
-# Run vet and staticcheck
+# Run vet
 go vet ./...
-```
 
-There is no separate test suite at this time; the build and vet checks are the baseline.
+# Run the test suite (no live Discord connection required)
+go test -race ./...
+```
 
 ---
 
@@ -39,10 +40,11 @@ There is no separate test suite at this time; the build and vet checks are the b
 
 2. **Make your changes.** Follow the style and patterns already present in the codebase.
 
-3. **Build and vet:**
+3. **Build, vet, and test:**
    ```bash
    GOWORK=off go build .
    go vet ./...
+   go test -race ./...
    ```
 
 4. **Open a pull request** against `main` with a clear description of what changed and why.
@@ -112,6 +114,8 @@ Before marking your PR ready for review:
 
 - [ ] `GOWORK=off go build .` passes with no errors
 - [ ] `go vet ./...` passes with no warnings
+- [ ] `go test -race ./...` passes with no failures
+- [ ] `gofmt -l .` reports no files (code is properly formatted)
 - [ ] All exported symbols have godoc comments
 - [ ] Concurrency is correct (no data races under `-race`)
 - [ ] `CHANGELOG.md` has an entry under `## [Unreleased]`

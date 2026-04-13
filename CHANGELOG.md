@@ -8,66 +8,102 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+_No unreleased changes at this time._
+
+---
+
+## [1.0.0] — 2026-04-13
+
+### Security
+
+- **`websocket.go`** — Added `maxFramePayload` constant (64 MiB). `readFrame`
+  now rejects frames that report a payload length greater than `maxFramePayload`
+  before allocating memory. Previously, a malformed or adversarial server frame
+  could trigger an out-of-memory crash by claiming an enormous payload length.
+  Also guards against the 8-byte length field producing a negative `int64`
+  (high-bit overflow), which would have caused an immediate panic in
+  `make([]byte, plen)`.
+
+- **`rest.go`** — `AddReaction` and `RemoveReaction` now pass the `emoji`
+  parameter through `url.PathEscape` before interpolating it into the request
+  path. Previously a crafted emoji string containing `/` or `..` could
+  silently target a different Discord API endpoint (path injection).
+
+- **`rest.go`** — Rate-limit retry in `do()` is now bounded by
+  `maxRateLimitRetries` (3). Previously the recursive retry had no depth
+  limit, so a server that continuously returned 429 could cause unbounded
+  recursion and a stack overflow. Callers now receive an `*APIError` with
+  status 429 once the budget is exhausted.
+
+- **`rest.go`** — Renamed inner `body` variable in error-parsing block to
+  `errBody` to eliminate shadowing of the function parameter `body`. The
+  previous shadowing was not exploitable but was a latent correctness hazard
+  for future refactoring.
+
 ### Added
 
-**New files**
-- `logger.go` — `Logger` interface, `WithLogger` functional option, `NoopLogger` for silencing output in tests.
-- `permissions.go` — `Permission` bitflag type with all 53 Discord permission constants (`PermKickMembers`, `PermModerateMembers`, etc.), composite sets (`PermModerator`, `PermDefaultText`), and `Has()`, `Any()`, `Add()`, `Remove()`, `Toggle()`, `String()` methods.
-- `errors.go` — Typed `APIError` with HTTP status, Discord JSON error code, and convenience predicates (`IsNotFound()`, `IsForbidden()`, `IsRateLimit()`, `IsServerError()`). Includes all common Discord JSON error code constants (`ErrCodeMissingPermissions`, `ErrCodeUnknownMember`, etc.).
+- **`permissions.go`** — `ParsePermission(s string) (Permission, error)` parses
+  the decimal permission string Discord sends for members and roles (e.g.
+  `"2147483651"`) into a `Permission` value. Uses `strconv.ParseUint`
+  internally, providing a clear error on malformed input. Replaces the fragile
+  `fmt.Sscanf` pattern used in the examples.
 
-**`bot.go`**
-- `New()` now accepts variadic `Option` values: `discord.New(token, intents, discord.WithLogger(l))`.
-- Panics with a clear message if token is empty.
-- `Bot.Use(...MiddlewareFunc)` to register command middleware chains.
-- `Bot.Log()` to access the active logger from outside the package.
+- **`permissions.go`** — `MustParsePermission(s string) Permission` — panics on
+  error; intended for compile-time constant initialisation only.
 
-**`commands.go`**
-- Quoted-string argument parsing: `!ban @user "repeated rule violations"` → `Args: ["@user", "repeated rule violations"]`.
-- `HandlerFunc` and `MiddlewareFunc` types exported for type-safe middleware.
-- `Bot.Use()` for registering global middleware that wraps every command handler.
-- `Command.Usage` field for documenting expected argument syntax in help embeds.
+- **`rest.go`** — `BulkDeleteMessages` now validates that the caller provides
+  between 2 and 100 message IDs before making any HTTP request, matching
+  Discord's documented constraint and providing a clear error message.
 
-**`interactions.go`**
-- `Button()` and `LinkButton()` component builder helpers.
-- `GetGlobalCommands()`, `CreateGlobalCommand()`, `BulkOverwriteGlobalCommands()` REST methods.
-- `CreateFollowupMessage()`, `EditFollowupMessage()`, `DeleteFollowupMessage()` — send follow-up messages up to 15 minutes after an interaction.
+- **`rest.go`** — `GetMessages` clamps `limit` to `[1, 100]`. Previously
+  passing `0` or a negative value would have produced a malformed request.
 
-**`rest.go`**
-- `AddMemberRole()` / `RemoveMemberRole()` — add or remove a role from a guild member.
-- `SendEmbedDM()` — send an embed via direct message.
-- `EditMessageComplex()` — edit with full `MessageEdit` payload (content + embeds + components).
-- Webhook support: `CreateWebhook()`, `GetWebhook()`, `GetChannelWebhooks()`, `DeleteWebhook()`, `ExecuteWebhook()`.
-- REST errors now return `*APIError` instead of `fmt.Errorf` strings, enabling `errors.As` inspection.
+- **`rest.go`** — `BanMember` clamps `deleteMessageDays` to `[0, 7]` (Discord's
+  enforced range). Out-of-range values are silently clamped rather than causing
+  an API error.
 
-**`types.go`**
-- `Member` gains `PremiumSince`, `Pending`, `Permissions`, `CommunicationDisabledUntil` fields.
-- `MessageSend` and `MessageEdit` gain `Components []Component` for attaching buttons and select menus.
+- **`.gitignore`** — Standard Go `.gitignore` covering binaries, test output,
+  vendor directory, and common editor/OS artefacts.
+
+- **`.github/workflows/ci.yml`** — GitHub Actions CI pipeline that runs on
+  every push to `main` and on pull requests. Matrix-tests against Go 1.21,
+  1.22, and 1.23. Steps: `go build`, `go vet`, `go test -race`, and `gofmt`
+  format check.
+
+- **`commands_test.go`** — Unit tests for `parseArgs` (15 cases including
+  quoted strings, escape sequences, and edge cases) and `buildChain` (no-op
+  chain, multi-middleware execution order).
+
+- **`gateway_test.go`** — Unit tests for `backoffDelay`: first-attempt range,
+  mean-value growth across attempts, and cap-at-maximum assertion.
+
+- **`permissions_test.go`** — Unit tests for `ParsePermission`,
+  `MustParsePermission`, `Has`, `Any`, `Add`, `Remove`, `Toggle`, `IsAdmin`,
+  and `String` (including unknown-bit labelling).
+
+- **`errors_test.go`** — Unit tests for `APIError.Error()` formatting (with and
+  without Discord code), all five predicate methods, and `errors.As`
+  compatibility.
+
+- **`rest_test.go`** — Unit tests for in-process input-validation logic in
+  `BulkDeleteMessages`, `GetMessages`, and `BanMember`.
+
+- **`websocket_test.go`** — Unit tests for `maxFramePayload` value, WebSocket
+  frame header construction, and the RFC 6455 §1.3 `wsComputeAccept` test
+  vector.
 
 ### Changed
 
-**`gateway.go`**
-- Reconnect back-off changed from fixed 5 s to exponential back-off: starts at 1 s, doubles each failed attempt, caps at 5 min, with ±20 % random jitter.
-- `sessionID` and `resumeURL` are now protected by `sessionMu sync.RWMutex` — eliminates a data race under concurrent reconnects.
-- Heartbeat loop now detects zombie connections: if a heartbeat ACK is not received before the next beat, the connection is closed to force a Resume.
-- `lastACK` is set to `true` before the first heartbeat to prevent false zombie detection on startup.
-- Resume URL is cleared on dial failure so the next attempt uses the primary gateway.
-- `InvalidSession` jitter is now random 1–5 s (per Discord recommendation) rather than fixed 1 s.
+- **`example/slash/main.go`** — Fixed integer overflow in the `/roll` command:
+  `byte(max)` was truncating `max` to 8 bits for values > 255, producing a
+  wrong modulus. The result is now computed as `int64(lastDigit) % max + 1`.
 
-**`events.go`**
-- All handler goroutines are now wrapped in `safeGo()` — panics inside handlers are caught, logged with a full stack trace, and the bot continues running.
-- Unmarshal errors in each event case now log the error and event type for easier debugging.
-- Unknown event types are silently discarded (forward-compatible with new Discord events).
+- **`example/slash/main.go`** — Replaced deprecated `strings.Title` (removed
+  from idiomatic Go since 1.18) with an inline `strings.ToUpper(s[:1]) +
+  s[1:]` capitalisation.
 
-**`rest.go`**
-- `newRestClient` now accepts the `*Bot` for logger access (used for rate-limit log messages).
-- Rate-limit sleeps now log the endpoint and retry delay via `b.log`.
-- Response body is read into memory before decoding so `io.ReadAll` errors don't silently hide API error bodies.
-
-### Fixed
-
-- `Bot.SetActivity()` / `Bot.SetStatus()` could race on `gateway.conn` — now guarded via `sessionMu`.
-- `gateway.stop()` now reads `conn` under `sessionMu` to avoid a nil-pointer race.
-- `heartbeatLoop` no longer starts the first tick without waiting for jitter, preventing a duplicate heartbeat on reconnect.
+- **`example/basic/main.go`** — Replaced `fmt.Sscanf(member.Permissions, "%d",
+  (*uint64)(&perms))` with `discord.ParsePermission(member.Permissions)`.
 
 ---
 
@@ -83,3 +119,43 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Interactions v2: slash commands, select menus, interaction callbacks (`interactions.go`).
 - 6 additional event types: `GUILD_MEMBER_ADD/REMOVE/UPDATE`, `GUILD_BAN_ADD/REMOVE`, `INTERACTION_CREATE`.
 - REST methods for moderation: `ModifyGuildMember`, `TimeoutMember`, `GetGuildBan(s)`, `BulkDeleteMessages`, `ModifyChannel`, `EditChannelPermissions`, `DeleteChannelPermission`.
+
+### Added (polish pass — now part of 1.0.0)
+
+**New files**
+- `logger.go` — `Logger` interface, `WithLogger` functional option, `NoopLogger` for silencing output in tests.
+- `permissions.go` — `Permission` bitflag type with all 53 Discord permission constants, composite sets, and utility methods.
+- `errors.go` — Typed `APIError` with HTTP status, Discord JSON error code, and convenience predicates. Includes all common Discord JSON error code constants.
+
+**`bot.go`**
+- `New()` accepts variadic `Option` values.
+- Panics with a clear message if token is empty.
+- `Bot.Use(...MiddlewareFunc)` for command middleware chains.
+- `Bot.Log()` to access the active logger.
+
+**`commands.go`**
+- Quoted-string argument parsing.
+- `HandlerFunc` and `MiddlewareFunc` types exported for type-safe middleware.
+- `Command.Usage` field.
+
+**`interactions.go`**
+- `Button()` and `LinkButton()` component builder helpers.
+- Global and guild command REST methods.
+- Follow-up message REST methods.
+
+**`rest.go`**
+- `AddMemberRole()` / `RemoveMemberRole()`.
+- `SendEmbedDM()`, `EditMessageComplex()`.
+- Full webhook support.
+- REST errors return `*APIError`.
+
+**`gateway.go`**
+- Exponential back-off reconnect (1 s → 5 min, ±20 % jitter).
+- `sessionMu` protecting session ID and resume URL.
+- Zombie connection detection via heartbeat ACK tracking.
+- Resume URL cleared on dial failure.
+- `InvalidSession` jitter (random 1–5 s per Discord recommendation).
+
+**`events.go`**
+- All handler goroutines wrapped in `safeGo()` with panic recovery.
+- Unknown event types silently discarded (forward-compatible).
