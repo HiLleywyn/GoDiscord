@@ -427,10 +427,25 @@ type ReadyEvent struct {
 }
 
 // MessageDeleteEvent carries the IDs of a deleted message.
+// CachedMessage is populated by the framework when the deleted message was
+// seen and cached during the session. It is nil for messages that predate
+// the bot's last start or were never observed.
 type MessageDeleteEvent struct {
-	ID        Snowflake `json:"id"`
-	ChannelID Snowflake `json:"channel_id"`
-	GuildID   Snowflake `json:"guild_id"`
+	ID            Snowflake `json:"id"`
+	ChannelID     Snowflake `json:"channel_id"`
+	GuildID       Snowflake `json:"guild_id"`
+	CachedMessage *Message  `json:"-"` // populated from the in-memory cache
+}
+
+// MessageUpdateEvent is fired when a message is edited.
+// OldMessage is the cached version before the edit; it is nil when the
+// message was not in the framework's cache (e.g. it predates this session).
+// NewMessage always contains the updated message as delivered by Discord.
+type MessageUpdateEvent struct {
+	ChannelID  Snowflake `json:"channel_id"`
+	GuildID    Snowflake `json:"guild_id"`
+	OldMessage *Message  // nil if not cached
+	NewMessage *Message  // always set
 }
 
 // MessageReactionAddEvent is dispatched when a user adds a reaction.

@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -61,10 +62,17 @@ type discordErrorBody struct {
 // On non-2xx responses it returns *APIError. 429 Too Many Requests responses
 // are retried up to maxRateLimitRetries times after sleeping for Retry-After.
 func (r *RestClient) do(method, path string, body interface{}, out interface{}) error {
-	return r.doWithRetry(method, path, body, out, 0)
+	return r.doInternal(method, path, body, out, nil, 0)
 }
 
+// doWithRetry is kept for callers that manage their own retry count.
 func (r *RestClient) doWithRetry(method, path string, body interface{}, out interface{}, retries int) error {
+	return r.doInternal(method, path, body, out, nil, retries)
+}
+
+// doInternal is the core request executor. extraHeaders are merged onto every
+// attempt, including rate-limit retries.
+func (r *RestClient) doInternal(method, path string, body interface{}, out interface{}, extraHeaders map[string]string, retries int) error {
 	var bodyReader io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -82,6 +90,9 @@ func (r *RestClient) doWithRetry(method, path string, body interface{}, out inte
 	req.Header.Set("User-Agent", "GoDiscord (https://github.com/hilleywyn/godiscord, 1.0)")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range extraHeaders {
+		req.Header.Set(k, v)
 	}
 
 	resp, err := r.client.Do(req)
@@ -110,7 +121,7 @@ func (r *RestClient) doWithRetry(method, path string, body interface{}, out inte
 				method, path, secs, retries+1, maxRateLimitRetries)
 		}
 		time.Sleep(time.Duration(secs*1000) * time.Millisecond)
-		return r.doWithRetry(method, path, body, out, retries+1)
+		return r.doInternal(method, path, body, out, extraHeaders, retries+1)
 	}
 
 	if resp.StatusCode == http.StatusNoContent {
@@ -140,6 +151,15 @@ func (r *RestClient) doWithRetry(method, path string, body interface{}, out inte
 		return json.Unmarshal(raw, out)
 	}
 	return nil
+}
+
+// auditHeaders returns a header map containing X-Audit-Log-Reason when reason
+// is non-empty, or nil otherwise. Used by moderation methods.
+func auditHeaders(reason string) map[string]string {
+	if reason == "" {
+		return nil
+	}
+	return map[string]string{"X-Audit-Log-Reason": url.QueryEscape(reason)}
 }
 
 func (r *RestClient) get(path string, out interface{}) error {
@@ -230,6 +250,72 @@ func (r *RestClient) EditMessageComplex(channelID, messageID string, edit *Messa
 // DeleteMessage deletes a message.
 func (r *RestClient) DeleteMessage(channelID, messageID string) error {
 	return r.delete("/channels/" + channelID + "/messages/" + messageID)
+}
+
+// SendFile uploads a file to a channel as a message attachment.
+// filename is used as the attachment name; data is the raw file content.
+// content is an optional text message sent alongside the attachment (may be "").
+func (r *RestClient) SendFile(channelID, filename string, data []byte, content string) (*Message, error) {
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+
+	// payload_json carries the text content and any embeds.
+	payload := map[string]interface{}{}
+	if content != "" {
+		payload["content"] = content
+	}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	if pw, err := w.CreateFormField("payload_json"); err == nil {
+		_, _ = pw.Write(payloadJSON)
+	}
+
+	// files[0] carries the attachment data.
+	fw, err := w.CreateFormFile("files[0]", filename)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := fw.Write(data); err != nil {
+		return nil, err
+	}
+	w.Close()
+
+	req, err := http.NewRequest(http.MethodPost, apiBase+"/channels/"+channelID+"/messages", body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bot "+r.token)
+	req.Header.Set("User-Agent", "GoDiscord (https://github.com/hilleywyn/godiscord, 1.0)")
+	req.Header.Set("Content-Type", w.FormDataContentType())
+
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		apiErr := &APIError{
+			Method:     http.MethodPost,
+			Path:       "/channels/" + channelID + "/messages",
+			StatusCode: resp.StatusCode,
+			Message:    string(raw),
+		}
+		var errBody discordErrorBody
+		if json.Unmarshal(raw, &errBody) == nil && errBody.Code != 0 {
+			apiErr.Code = errBody.Code
+			apiErr.Message = errBody.Message
+		}
+		return nil, apiErr
+	}
+	var msg Message
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		return nil, err
+	}
+	return &msg, nil
 }
 
 // GetMessage fetches a single message by ID.
@@ -347,8 +433,13 @@ func (r *RestClient) SearchGuildMembers(guildID, query string, limit int) ([]*Me
 }
 
 // KickMember removes a member from a guild.
-func (r *RestClient) KickMember(guildID, userID string) error {
-	return r.delete("/guilds/" + guildID + "/members/" + userID)
+// An optional audit-log reason may be supplied as the last argument.
+func (r *RestClient) KickMember(guildID, userID string, reason ...string) error {
+	rsn := ""
+	if len(reason) > 0 {
+		rsn = reason[0]
+	}
+	return r.doInternal(http.MethodDelete, "/guilds/"+guildID+"/members/"+userID, nil, nil, auditHeaders(rsn), 0)
 }
 
 // BanMember bans a user from a guild.
@@ -407,18 +498,20 @@ func (r *RestClient) ModifyGuildMember(guildID, userID string, data map[string]i
 	return &m, nil
 }
 
-// TimeoutMember applies a Discord communication timeout to a member.
-// Pass an empty string for until to remove an existing timeout.
-// until must be an RFC3339 UTC timestamp, e.g.:
-//
-//	time.Now().Add(5 * time.Minute).UTC().Format(time.RFC3339)
-func (r *RestClient) TimeoutMember(guildID, userID, until string) error {
+// TimeoutMember applies a Discord communication timeout to a member until the
+// given time. Pass a zero time.Time{} to remove an existing timeout.
+// An optional audit-log reason may be supplied as the last argument.
+func (r *RestClient) TimeoutMember(guildID, userID string, until time.Time, reason ...string) error {
 	var val interface{}
-	if until != "" {
-		val = until
+	if !until.IsZero() {
+		val = until.UTC().Format(time.RFC3339)
 	}
-	return r.patch("/guilds/"+guildID+"/members/"+userID,
-		map[string]interface{}{"communication_disabled_until": val}, nil)
+	rsn := ""
+	if len(reason) > 0 {
+		rsn = reason[0]
+	}
+	body := map[string]interface{}{"communication_disabled_until": val}
+	return r.doInternal(http.MethodPatch, "/guilds/"+guildID+"/members/"+userID, body, nil, auditHeaders(rsn), 0)
 }
 
 // GetGuildRoles returns all roles for a guild.
@@ -1010,4 +1103,75 @@ func (r *RestClient) GetGuildAuditLog(guildID string, actionType int, limit int)
 		return nil, err
 	}
 	return &al, nil
+}
+
+// ---------------------------------------------------------------------------
+// Convenience aliases and additional moderation helpers
+// ---------------------------------------------------------------------------
+
+// EditEmbed edits the embed on an existing message.
+// Alias for EditMessageEmbed; provided for plugin API consistency.
+func (r *RestClient) EditEmbed(channelID, messageID string, embed Embed) (*Message, error) {
+	return r.EditMessageEmbed(channelID, messageID, embed)
+}
+
+// SetNickname changes a guild member's nickname.
+// Pass an empty string to reset the nickname to the user's username.
+// An optional audit-log reason may be supplied as the last argument.
+func (r *RestClient) SetNickname(guildID, userID, nick string, reason ...string) error {
+	rsn := ""
+	if len(reason) > 0 {
+		rsn = reason[0]
+	}
+	var m Member
+	return r.doInternal(http.MethodPatch, "/guilds/"+guildID+"/members/"+userID,
+		map[string]interface{}{"nick": nick}, &m, auditHeaders(rsn), 0)
+}
+
+// RemoveUserReaction removes a specific user's reaction from a message.
+// emoji should be a unicode emoji or "name:id" for custom emojis.
+func (r *RestClient) RemoveUserReaction(channelID, messageID, emoji, userID string) error {
+	path := fmt.Sprintf("/channels/%s/messages/%s/reactions/%s/%s",
+		channelID, messageID, url.PathEscape(emoji), userID)
+	return r.delete(path)
+}
+
+// SetChannelSlowmode sets the slowmode rate limit for a text channel.
+// rateLimit is in seconds; 0 disables slowmode. Max is 21600 (6 hours).
+func (r *RestClient) SetChannelSlowmode(channelID string, rateLimit int) error {
+	if rateLimit < 0 {
+		rateLimit = 0
+	}
+	if rateLimit > 21600 {
+		rateLimit = 21600
+	}
+	_, err := r.ModifyChannel(channelID, map[string]interface{}{"rate_limit_per_user": rateLimit})
+	return err
+}
+
+// DownloadAttachment fetches the content at url and returns the raw bytes.
+// Intended for downloading Discord attachment URLs before they expire.
+func (r *RestClient) DownloadAttachment(attachURL string) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodGet, attachURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	// Discord CDN attachments do not require auth, but include a UA header.
+	req.Header.Set("User-Agent", "GoDiscord (https://github.com/hilleywyn/godiscord, 1.0)")
+
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, &APIError{
+			Method:     http.MethodGet,
+			Path:       attachURL,
+			StatusCode: resp.StatusCode,
+			Message:    "attachment download failed",
+		}
+	}
+	return io.ReadAll(resp.Body)
 }

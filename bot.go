@@ -103,8 +103,16 @@ func (b *Bot) OnMessageCreate(h MessageCreateHandler) *Bot {
 }
 
 // OnMessageUpdate registers a handler for edited messages.
+// The handler receives the updated *Message directly.
 func (b *Bot) OnMessageUpdate(h MessageUpdateHandler) *Bot {
 	b.events.addMessageUpdate(h)
+	return b
+}
+
+// OnMessageUpdateEvent registers a handler for edited messages that includes
+// the pre-edit content (OldMessage) when the message was cached.
+func (b *Bot) OnMessageUpdateEvent(h MessageUpdateEventHandler) *Bot {
+	b.events.addMessageUpdateEvent(h)
 	return b
 }
 

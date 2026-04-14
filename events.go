@@ -28,7 +28,13 @@ type (
 	MessageCreateHandler func(*Bot, *Message)
 
 	// MessageUpdateHandler is called when a message is edited.
+	// Receives the updated message directly. For access to the pre-edit
+	// content, use MessageUpdateEventHandler instead.
 	MessageUpdateHandler func(*Bot, *Message)
+
+	// MessageUpdateEventHandler is called when a message is edited.
+	// OldMessage is the cached version before the edit (nil if not cached).
+	MessageUpdateEventHandler func(*Bot, *MessageUpdateEvent)
 
 	// MessageDeleteHandler is called when a message is deleted.
 	MessageDeleteHandler func(*Bot, *MessageDeleteEvent)
@@ -136,6 +142,57 @@ type (
 )
 
 // ---------------------------------------------------------------------------
+// Message cache
+// ---------------------------------------------------------------------------
+
+// msgCacheCap is the maximum number of messages the dispatcher retains for
+// snipe/edit-detection. When the cap is reached, the oldest 10% are evicted.
+const msgCacheCap = 2000
+
+// dispatchMsgCache is a simple insertion-ordered cache for recent messages.
+// It is embedded in eventDispatcher and protected by its own mutex so it
+// does not contend with handler-registration operations.
+type dispatchMsgCache struct {
+	mu   sync.Mutex
+	msgs map[string]*Message
+	keys []string // insertion order for eviction
+}
+
+func newDispatchMsgCache() *dispatchMsgCache {
+	return &dispatchMsgCache{msgs: make(map[string]*Message)}
+}
+
+func (c *dispatchMsgCache) set(m *Message) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, exists := c.msgs[m.ID]; !exists {
+		c.keys = append(c.keys, m.ID)
+		if len(c.keys) > msgCacheCap {
+			evict := msgCacheCap / 10
+			for _, id := range c.keys[:evict] {
+				delete(c.msgs, id)
+			}
+			c.keys = c.keys[evict:]
+		}
+	}
+	c.msgs[m.ID] = m
+}
+
+func (c *dispatchMsgCache) get(id string) *Message {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.msgs[id]
+}
+
+func (c *dispatchMsgCache) del(id string) *Message {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	m := c.msgs[id]
+	delete(c.msgs, id)
+	return m
+}
+
+// ---------------------------------------------------------------------------
 // Dispatcher
 // ---------------------------------------------------------------------------
 
@@ -143,10 +200,13 @@ type (
 type eventDispatcher struct {
 	mu sync.RWMutex
 
-	onReady               []ReadyHandler
-	onMessageCreate       []MessageCreateHandler
-	onMessageUpdate       []MessageUpdateHandler
-	onMessageDelete       []MessageDeleteHandler
+	msgCache *dispatchMsgCache // in-memory message cache for snipe/edit context
+
+	onReady                 []ReadyHandler
+	onMessageCreate         []MessageCreateHandler
+	onMessageUpdate         []MessageUpdateHandler
+	onMessageUpdateEvent    []MessageUpdateEventHandler
+	onMessageDelete         []MessageDeleteHandler
 	onGuildCreate         []GuildCreateHandler
 	onGuildDelete         []GuildDeleteHandler
 	onReactionAdd         []ReactionAddHandler
@@ -182,7 +242,7 @@ type eventDispatcher struct {
 }
 
 func newEventDispatcher() *eventDispatcher {
-	return &eventDispatcher{}
+	return &eventDispatcher{msgCache: newDispatchMsgCache()}
 }
 
 // ---------------------------------------------------------------------------
@@ -222,6 +282,12 @@ func (d *eventDispatcher) addMessageCreate(h MessageCreateHandler) {
 func (d *eventDispatcher) addMessageUpdate(h MessageUpdateHandler) {
 	d.mu.Lock()
 	d.onMessageUpdate = append(d.onMessageUpdate, h)
+	d.mu.Unlock()
+}
+
+func (d *eventDispatcher) addMessageUpdateEvent(h MessageUpdateEventHandler) {
+	d.mu.Lock()
+	d.onMessageUpdateEvent = append(d.onMessageUpdateEvent, h)
 	d.mu.Unlock()
 }
 
@@ -458,6 +524,11 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 			b.log.Printf("[events] MESSAGE_CREATE unmarshal error: %v", err)
 			return
 		}
+		// Cache for snipe/edit context.
+		if e.ID != "" && e.Content != "" {
+			copy := e
+			d.msgCache.set(&copy)
+		}
 		if b.commands != nil {
 			safeGo(b, func() { b.commands.handle(b, &e) })
 		}
@@ -467,7 +538,7 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 		}
 
 	case "MESSAGE_UPDATE":
-		if len(d.onMessageUpdate) == 0 {
+		if len(d.onMessageUpdate) == 0 && len(d.onMessageUpdateEvent) == 0 {
 			return
 		}
 		var e Message
@@ -475,9 +546,27 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 			b.log.Printf("[events] MESSAGE_UPDATE unmarshal error: %v", err)
 			return
 		}
+		// Retrieve old content from cache before updating it.
+		old := d.msgCache.get(e.ID)
+		if e.ID != "" && e.Content != "" {
+			copy := e
+			d.msgCache.set(&copy)
+		}
 		for _, h := range d.onMessageUpdate {
 			h := h
 			safeGo(b, func() { h(b, &e) })
+		}
+		if len(d.onMessageUpdateEvent) > 0 {
+			ev := &MessageUpdateEvent{
+				ChannelID:  e.ChannelID,
+				GuildID:    e.GuildID,
+				OldMessage: old,
+				NewMessage: &e,
+			}
+			for _, h := range d.onMessageUpdateEvent {
+				h := h
+				safeGo(b, func() { h(b, ev) })
+			}
 		}
 
 	case "MESSAGE_DELETE":
@@ -489,6 +578,8 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 			b.log.Printf("[events] MESSAGE_DELETE unmarshal error: %v", err)
 			return
 		}
+		// Populate CachedMessage from the in-memory store.
+		e.CachedMessage = d.msgCache.del(e.ID)
 		for _, h := range d.onMessageDelete {
 			h := h
 			safeGo(b, func() { h(b, &e) })

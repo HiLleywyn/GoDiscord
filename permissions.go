@@ -428,3 +428,81 @@ func (p Permission) String() string {
 	}
 	return strings.Join(parts, "|")
 }
+
+// ---------------------------------------------------------------------------
+// Permission* aliases — convenience names used by plugins.
+//
+// These are identical in value to the Perm* constants above; they exist so
+// plugin authors can choose the style that reads most naturally to them
+// (e.g. discord.PermissionManageMessages vs. discord.PermManageMessages).
+// ---------------------------------------------------------------------------
+
+const (
+	PermissionCreateInstantInvite   = PermCreateInstantInvite
+	PermissionKickMembers           = PermKickMembers
+	PermissionBanMembers            = PermBanMembers
+	PermissionAdministrator         = PermAdministrator
+	PermissionManageChannels        = PermManageChannels
+	PermissionManageGuild           = PermManageGuild
+	PermissionAddReactions          = PermAddReactions
+	PermissionViewAuditLog          = PermViewAuditLog
+	PermissionPrioritySpeaker       = PermPrioritySpeaker
+	PermissionStream                = PermStream
+	PermissionViewChannel           = PermViewChannel
+	PermissionSendMessages          = PermSendMessages
+	PermissionSendTTSMessages       = PermSendTTSMessages
+	PermissionManageMessages        = PermManageMessages
+	PermissionEmbedLinks            = PermEmbedLinks
+	PermissionAttachFiles           = PermAttachFiles
+	PermissionReadMessageHistory    = PermReadMessageHistory
+	PermissionMentionEveryone       = PermMentionEveryone
+	PermissionUseExternalEmojis     = PermUseExternalEmojis
+	PermissionViewGuildInsights     = PermViewGuildInsights
+	PermissionConnect               = PermConnect
+	PermissionSpeak                 = PermSpeak
+	PermissionMuteMembers           = PermMuteMembers
+	PermissionDeafenMembers         = PermDeafenMembers
+	PermissionMoveMembers           = PermMoveMembers
+	PermissionUseVAD                = PermUseVAD
+	PermissionChangeNickname        = PermChangeNickname
+	PermissionManageNicknames       = PermManageNicknames
+	PermissionManageRoles           = PermManageRoles
+	PermissionManageWebhooks        = PermManageWebhooks
+	PermissionManageGuildExpressions = PermManageGuildExpressions
+	PermissionUseApplicationCommands = PermUseApplicationCommands
+	PermissionRequestToSpeak        = PermRequestToSpeak
+	PermissionManageEvents          = PermManageEvents
+	PermissionManageThreads         = PermManageThreads
+	PermissionCreatePublicThreads   = PermCreatePublicThreads
+	PermissionCreatePrivateThreads  = PermCreatePrivateThreads
+	PermissionUseExternalStickers   = PermUseExternalStickers
+	PermissionSendMessagesInThreads = PermSendMessagesInThreads
+	PermissionUseEmbeddedActivities = PermUseEmbeddedActivities
+	PermissionModerateMembers       = PermModerateMembers
+	PermissionSendVoiceMessages     = PermSendVoiceMessages
+	PermissionSendPolls             = PermSendPolls
+	PermissionUseExternalApps       = PermUseExternalApps
+)
+
+// HasPermission reports whether the member holds the given permission bit.
+//
+// It parses the member's Permissions string (the decimal integer Discord
+// includes on members received via gateway events) and checks with Has().
+// Administrator bypasses all other permission checks per Discord's rules.
+// Returns false on parse errors or when the member has no permissions set.
+//
+//	if ctx.Member.HasPermission(discord.PermissionManageMessages) { … }
+func (m *Member) HasPermission(perm Permission) bool {
+	if m == nil {
+		return false
+	}
+	p, err := ParsePermission(m.Permissions)
+	if err != nil {
+		return false
+	}
+	// Administrator grants everything.
+	if p.Has(PermAdministrator) {
+		return true
+	}
+	return p.Has(perm)
+}
