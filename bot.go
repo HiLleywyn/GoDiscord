@@ -226,6 +226,29 @@ func (b *Bot) Commands() []*Command {
 // Middleware
 // ---------------------------------------------------------------------------
 
+// SetCommandDenied registers a callback invoked when a command's
+// RequiredPermissions or PermCheck gate blocks an invocation. fn receives
+// the failing CommandContext and a short reason string. Replaces any prior
+// callback. Only useful after SetPrefix or AddCommand has been called.
+func (b *Bot) SetCommandDenied(fn func(*CommandContext, string)) *Bot {
+	b.mu.RLock()
+	ch := b.commands
+	b.mu.RUnlock()
+
+	if ch == nil {
+		b.mu.Lock()
+		if b.commands == nil {
+			b.commands = newCommandHandler("!")
+		}
+		ch = b.commands
+		b.mu.Unlock()
+	}
+	ch.mu.Lock()
+	ch.onDenied = fn
+	ch.mu.Unlock()
+	return b
+}
+
 // Use registers one or more middleware functions that wrap every command
 // handler. Middleware is applied in registration order, so the first Use()
 // call wraps the outermost layer.

@@ -65,6 +65,17 @@ type Command struct {
 	// Handler is called when the command is matched. Do not set this field
 	// directly when using middleware — use commandHandler.build() internally.
 	Handler func(*CommandContext)
+
+	// RequiredPermissions, if non-zero, gates this command behind a Discord
+	// permission check. All specified bits must be present in the invoking
+	// member's computed guild permissions. A failed check invokes the bot's
+	// command-denied callback (see Bot.SetCommandDenied) if one is registered.
+	RequiredPermissions Permission
+
+	// PermCheck is an optional custom gate evaluated after RequiredPermissions.
+	// Return false to block the invocation. Runs synchronously in the dispatch
+	// goroutine, so it must not block.
+	PermCheck func(*CommandContext) bool
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +129,7 @@ type commandHandler struct {
 	mu         sync.RWMutex
 	commands   map[string]*Command // keyed by lower-cased name and aliases
 	middleware []MiddlewareFunc
+	onDenied   func(*CommandContext, string) // called when a permission check fails
 }
 
 func newCommandHandler(prefix string) *commandHandler {
@@ -211,6 +223,36 @@ func (h *commandHandler) handle(b *Bot, msg *Message) {
 		Command: cmd,
 		Args:    args,
 		RawArgs: rawArgs,
+	}
+
+	// Permission gate: Discord bitfield check.
+	if cmd.RequiredPermissions != 0 {
+		allowed := false
+		if msg.Member != nil {
+			if perms, err := ParsePermission(msg.Member.Permissions); err == nil {
+				allowed = perms.Has(cmd.RequiredPermissions)
+			}
+		}
+		if !allowed {
+			h.mu.RLock()
+			denied := h.onDenied
+			h.mu.RUnlock()
+			if denied != nil {
+				denied(ctx, "missing required permissions")
+			}
+			return
+		}
+	}
+
+	// Custom permission gate.
+	if cmd.PermCheck != nil && !cmd.PermCheck(ctx) {
+		h.mu.RLock()
+		denied := h.onDenied
+		h.mu.RUnlock()
+		if denied != nil {
+			denied(ctx, "permission check failed")
+		}
+		return
 	}
 
 	// Build the middleware chain and invoke.
