@@ -329,6 +329,22 @@ func (r *RestClient) GetGuildMember(guildID, userID string) (*Member, error) {
 	return &m, nil
 }
 
+// SearchGuildMembers searches guild members whose username or nickname starts
+// with query. limit is capped at 1000 by Discord; pass a small value (e.g. 5)
+// for interactive lookups. Returns nil slice (not an error) when no members match.
+func (r *RestClient) SearchGuildMembers(guildID, query string, limit int) ([]*Member, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	path := fmt.Sprintf("/guilds/%s/members/search?query=%s&limit=%d",
+		guildID, url.QueryEscape(query), limit)
+	var members []*Member
+	if err := r.get(path, &members); err != nil {
+		return nil, err
+	}
+	return members, nil
+}
+
 // KickMember removes a member from a guild.
 func (r *RestClient) KickMember(guildID, userID string) error {
 	return r.delete("/guilds/" + guildID + "/members/" + userID)
