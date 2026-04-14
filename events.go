@@ -131,38 +131,38 @@ type (
 type eventDispatcher struct {
 	mu sync.RWMutex
 
-	onReady             []ReadyHandler
-	onMessageCreate     []MessageCreateHandler
-	onMessageUpdate     []MessageUpdateHandler
-	onMessageDelete     []MessageDeleteHandler
-	onGuildCreate       []GuildCreateHandler
-	onGuildDelete       []GuildDeleteHandler
-	onReactionAdd       []ReactionAddHandler
-	onReactionRemove    []ReactionRemoveHandler
-	onInteractionCreate []InteractionCreateHandler
-	onGuildMemberAdd    []GuildMemberAddHandler
-	onGuildMemberRemove []GuildMemberRemoveHandler
-	onGuildMemberUpdate []GuildMemberUpdateHandler
-	onGuildBanAdd          []GuildBanAddHandler
-	onGuildBanRemove       []GuildBanRemoveHandler
-	onChannelCreate        []ChannelCreateHandler
-	onChannelUpdate        []ChannelUpdateHandler
-	onChannelDelete        []ChannelDeleteHandler
-	onGuildUpdate          []GuildUpdateHandler
-	onGuildRoleCreate      []GuildRoleCreateHandler
-	onGuildRoleUpdate      []GuildRoleUpdateHandler
-	onGuildRoleDelete      []GuildRoleDeleteHandler
-	onThreadCreate         []ThreadCreateHandler
-	onThreadUpdate         []ThreadUpdateHandler
-	onThreadDelete         []ThreadDeleteHandler
-	onInviteCreate         []InviteCreateHandler
-	onInviteDelete         []InviteDeleteHandler
-	onWebhooksUpdate       []WebhooksUpdateHandler
-	onVoiceStateUpdate     []VoiceStateUpdateHandler
-	onTypingStart          []TypingStartHandler
-	onMessageDeleteBulk    []MessageDeleteBulkHandler
-	onReactionRemoveAll    []ReactionRemoveAllHandler
-	onReactionRemoveEmoji  []ReactionRemoveEmojiHandler
+	onReady               []ReadyHandler
+	onMessageCreate       []MessageCreateHandler
+	onMessageUpdate       []MessageUpdateHandler
+	onMessageDelete       []MessageDeleteHandler
+	onGuildCreate         []GuildCreateHandler
+	onGuildDelete         []GuildDeleteHandler
+	onReactionAdd         []ReactionAddHandler
+	onReactionRemove      []ReactionRemoveHandler
+	onInteractionCreate   []InteractionCreateHandler
+	onGuildMemberAdd      []GuildMemberAddHandler
+	onGuildMemberRemove   []GuildMemberRemoveHandler
+	onGuildMemberUpdate   []GuildMemberUpdateHandler
+	onGuildBanAdd         []GuildBanAddHandler
+	onGuildBanRemove      []GuildBanRemoveHandler
+	onChannelCreate       []ChannelCreateHandler
+	onChannelUpdate       []ChannelUpdateHandler
+	onChannelDelete       []ChannelDeleteHandler
+	onGuildUpdate         []GuildUpdateHandler
+	onGuildRoleCreate     []GuildRoleCreateHandler
+	onGuildRoleUpdate     []GuildRoleUpdateHandler
+	onGuildRoleDelete     []GuildRoleDeleteHandler
+	onThreadCreate        []ThreadCreateHandler
+	onThreadUpdate        []ThreadUpdateHandler
+	onThreadDelete        []ThreadDeleteHandler
+	onInviteCreate        []InviteCreateHandler
+	onInviteDelete        []InviteDeleteHandler
+	onWebhooksUpdate      []WebhooksUpdateHandler
+	onVoiceStateUpdate    []VoiceStateUpdateHandler
+	onTypingStart         []TypingStartHandler
+	onMessageDeleteBulk   []MessageDeleteBulkHandler
+	onReactionRemoveAll   []ReactionRemoveAllHandler
+	onReactionRemoveEmoji []ReactionRemoveEmojiHandler
 }
 
 func newEventDispatcher() *eventDispatcher {

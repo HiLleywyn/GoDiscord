@@ -118,22 +118,22 @@ type Role struct {
 
 // Channel represents a Discord channel.
 type Channel struct {
-	ID                          Snowflake              `json:"id"`
-	Type                        ChannelType            `json:"type"`
-	GuildID                     Snowflake              `json:"guild_id"`
-	Name                        string                 `json:"name"`
-	Topic                       string                 `json:"topic"`
-	Position                    int                    `json:"position"`
-	NSFW                        bool                   `json:"nsfw"`
-	ParentID                    Snowflake              `json:"parent_id"`
-	Bitrate                     int                    `json:"bitrate"`
-	UserLimit                   int                    `json:"user_limit"`
-	RateLimitPerUser            int                    `json:"rate_limit_per_user"`
-	LastMessageID               string                 `json:"last_message_id"`
-	DefaultAutoArchiveDuration  int                    `json:"default_auto_archive_duration"`
-	PermissionOverwrites        []PermissionOverwrite  `json:"permission_overwrites"`
-	ThreadMetadata              *ThreadMetadata        `json:"thread_metadata,omitempty"`
-	Member                      *ThreadMember          `json:"member,omitempty"`
+	ID                         Snowflake             `json:"id"`
+	Type                       ChannelType           `json:"type"`
+	GuildID                    Snowflake             `json:"guild_id"`
+	Name                       string                `json:"name"`
+	Topic                      string                `json:"topic"`
+	Position                   int                   `json:"position"`
+	NSFW                       bool                  `json:"nsfw"`
+	ParentID                   Snowflake             `json:"parent_id"`
+	Bitrate                    int                   `json:"bitrate"`
+	UserLimit                  int                   `json:"user_limit"`
+	RateLimitPerUser           int                   `json:"rate_limit_per_user"`
+	LastMessageID              string                `json:"last_message_id"`
+	DefaultAutoArchiveDuration int                   `json:"default_auto_archive_duration"`
+	PermissionOverwrites       []PermissionOverwrite `json:"permission_overwrites"`
+	ThreadMetadata             *ThreadMetadata       `json:"thread_metadata,omitempty"`
+	Member                     *ThreadMember         `json:"member,omitempty"`
 }
 
 // Mention returns a Discord #channel mention string.
@@ -141,35 +141,35 @@ func (c *Channel) Mention() string { return "<#" + c.ID + ">" }
 
 // Guild represents a Discord server.
 type Guild struct {
-	ID                        Snowflake `json:"id"`
-	Name                      string    `json:"name"`
-	Icon                      string    `json:"icon"`
-	OwnerID                   Snowflake `json:"owner_id"`
-	MemberCount               int       `json:"member_count"`
-	Channels                  []Channel `json:"channels"`
-	Roles                     []Role    `json:"roles"`
-	Members                   []Member  `json:"members"`
-	Unavailable               bool      `json:"unavailable"`
-	PreferredLocale           string    `json:"preferred_locale"`
-	Description               string    `json:"description"`
-	Features                  []string  `json:"features"`
-	VanityURLCode             string    `json:"vanity_url_code"`
-	PremiumTier               int       `json:"premium_tier"`
-	PremiumSubscriptionCount  int       `json:"premium_subscription_count"`
-	SystemChannelID           string    `json:"system_channel_id"`
-	RulesChannelID            string    `json:"rules_channel_id"`
-	ApproximateMemberCount      int    `json:"approximate_member_count,omitempty"`
-	MaxMembers                  int    `json:"max_members"`
-	Banner                      string `json:"banner"`
-	Splash                      string `json:"splash"`
-	AFKChannelID                string `json:"afk_channel_id"`
-	AFKTimeout                  int    `json:"afk_timeout"`
-	VerificationLevel           int    `json:"verification_level"`
-	MFALevel                    int    `json:"mfa_level"`
-	ExplicitContentFilter       int    `json:"explicit_content_filter"`
-	DefaultMessageNotifications int    `json:"default_message_notifications"`
-	NSFWLevel                   int    `json:"nsfw_level"`
-	PublicUpdatesChannelID      string `json:"public_updates_channel_id"`
+	ID                          Snowflake `json:"id"`
+	Name                        string    `json:"name"`
+	Icon                        string    `json:"icon"`
+	OwnerID                     Snowflake `json:"owner_id"`
+	MemberCount                 int       `json:"member_count"`
+	Channels                    []Channel `json:"channels"`
+	Roles                       []Role    `json:"roles"`
+	Members                     []Member  `json:"members"`
+	Unavailable                 bool      `json:"unavailable"`
+	PreferredLocale             string    `json:"preferred_locale"`
+	Description                 string    `json:"description"`
+	Features                    []string  `json:"features"`
+	VanityURLCode               string    `json:"vanity_url_code"`
+	PremiumTier                 int       `json:"premium_tier"`
+	PremiumSubscriptionCount    int       `json:"premium_subscription_count"`
+	SystemChannelID             string    `json:"system_channel_id"`
+	RulesChannelID              string    `json:"rules_channel_id"`
+	ApproximateMemberCount      int       `json:"approximate_member_count,omitempty"`
+	MaxMembers                  int       `json:"max_members"`
+	Banner                      string    `json:"banner"`
+	Splash                      string    `json:"splash"`
+	AFKChannelID                string    `json:"afk_channel_id"`
+	AFKTimeout                  int       `json:"afk_timeout"`
+	VerificationLevel           int       `json:"verification_level"`
+	MFALevel                    int       `json:"mfa_level"`
+	ExplicitContentFilter       int       `json:"explicit_content_filter"`
+	DefaultMessageNotifications int       `json:"default_message_notifications"`
+	NSFWLevel                   int       `json:"nsfw_level"`
+	PublicUpdatesChannelID      string    `json:"public_updates_channel_id"`
 }
 
 // GuildUnavailable is sent when a guild becomes unavailable (outage).
@@ -633,13 +633,13 @@ type AuditLog struct {
 
 // AuditLogEntry is a single entry in the audit log.
 type AuditLogEntry struct {
-	ID         string             `json:"id"`
-	TargetID   string             `json:"target_id"`
-	UserID     string             `json:"user_id"`
-	ActionType int                `json:"action_type"`
-	Options    *AuditLogOptions   `json:"options,omitempty"`
-	Changes    []AuditLogChange   `json:"changes,omitempty"`
-	Reason     string             `json:"reason,omitempty"`
+	ID         string           `json:"id"`
+	TargetID   string           `json:"target_id"`
+	UserID     string           `json:"user_id"`
+	ActionType int              `json:"action_type"`
+	Options    *AuditLogOptions `json:"options,omitempty"`
+	Changes    []AuditLogChange `json:"changes,omitempty"`
+	Reason     string           `json:"reason,omitempty"`
 }
 
 // AuditLogOptions holds optional extra information for certain action types.
