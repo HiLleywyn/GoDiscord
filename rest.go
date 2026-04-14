@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -599,4 +600,408 @@ func (r *RestClient) ExecuteWebhook(webhookID, webhookToken string, msg *Webhook
 		return &m, nil
 	}
 	return nil, nil
+}
+
+// ---------------------------------------------------------------------------
+// Current User
+// ---------------------------------------------------------------------------
+
+// GetCurrentUser returns the bot's own user object.
+func (r *RestClient) GetCurrentUser() (*User, error) {
+	var u User
+	if err := r.get("/users/@me", &u); err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+// ModifyCurrentUser updates the bot's username or avatar.
+// Accepted keys: username, avatar (data URI string).
+func (r *RestClient) ModifyCurrentUser(data map[string]interface{}) (*User, error) {
+	var u User
+	if err := r.patch("/users/@me", data, &u); err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+// GetCurrentUserGuilds returns guilds the current user is a member of.
+// Pass limit=0 to omit the limit param. before and after are guild IDs for pagination.
+func (r *RestClient) GetCurrentUserGuilds(limit int, before, after string) ([]*Guild, error) {
+	path := "/users/@me/guilds"
+	params := []string{}
+	if limit > 0 {
+		params = append(params, fmt.Sprintf("limit=%d", limit))
+	}
+	if before != "" {
+		params = append(params, "before="+before)
+	}
+	if after != "" {
+		params = append(params, "after="+after)
+	}
+	if len(params) > 0 {
+		path += "?" + strings.Join(params, "&")
+	}
+	var guilds []*Guild
+	if err := r.get(path, &guilds); err != nil {
+		return nil, err
+	}
+	return guilds, nil
+}
+
+// LeaveGuild removes the current user from a guild.
+func (r *RestClient) LeaveGuild(guildID string) error {
+	return r.delete("/users/@me/guilds/" + guildID)
+}
+
+// ---------------------------------------------------------------------------
+// Guild management
+// ---------------------------------------------------------------------------
+
+// ModifyGuild updates a guild's settings.
+// Accepted keys: name, region, icon, verification_level, etc.
+func (r *RestClient) ModifyGuild(guildID string, data map[string]interface{}) (*Guild, error) {
+	var g Guild
+	if err := r.patch("/guilds/"+guildID, data, &g); err != nil {
+		return nil, err
+	}
+	return &g, nil
+}
+
+// CreateChannel creates a new channel in a guild.
+// Accepted keys: name, type, topic, position, permission_overwrites, parent_id, nsfw, etc.
+func (r *RestClient) CreateChannel(guildID string, data map[string]interface{}) (*Channel, error) {
+	var ch Channel
+	if err := r.post("/guilds/"+guildID+"/channels", data, &ch); err != nil {
+		return nil, err
+	}
+	return &ch, nil
+}
+
+// CreateRole creates a new role in a guild.
+// Accepted keys: name, permissions, color, hoist, mentionable.
+func (r *RestClient) CreateRole(guildID string, data map[string]interface{}) (*Role, error) {
+	var role Role
+	if err := r.post("/guilds/"+guildID+"/roles", data, &role); err != nil {
+		return nil, err
+	}
+	return &role, nil
+}
+
+// ModifyRole updates an existing role.
+// Accepted keys: name, permissions, color, hoist, mentionable.
+func (r *RestClient) ModifyRole(guildID, roleID string, data map[string]interface{}) (*Role, error) {
+	var role Role
+	if err := r.patch("/guilds/"+guildID+"/roles/"+roleID, data, &role); err != nil {
+		return nil, err
+	}
+	return &role, nil
+}
+
+// DeleteRole deletes a role from a guild.
+func (r *RestClient) DeleteRole(guildID, roleID string) error {
+	return r.delete("/guilds/" + guildID + "/roles/" + roleID)
+}
+
+// ModifyRolePositions bulk-updates role positions. Each entry must contain
+// "id" (role ID) and "position" (int).
+func (r *RestClient) ModifyRolePositions(guildID string, positions []map[string]interface{}) ([]*Role, error) {
+	var roles []*Role
+	if err := r.patch("/guilds/"+guildID+"/roles", positions, &roles); err != nil {
+		return nil, err
+	}
+	return roles, nil
+}
+
+// GetGuildBansPaginated returns ban records for a guild with optional pagination.
+// Pass limit=0 to omit the limit param. before and after are user IDs.
+func (r *RestClient) GetGuildBansPaginated(guildID string, limit int, before, after string) ([]*BanEntry, error) {
+	path := "/guilds/" + guildID + "/bans"
+	params := []string{}
+	if limit > 0 {
+		params = append(params, fmt.Sprintf("limit=%d", limit))
+	}
+	if before != "" {
+		params = append(params, "before="+before)
+	}
+	if after != "" {
+		params = append(params, "after="+after)
+	}
+	if len(params) > 0 {
+		path += "?" + strings.Join(params, "&")
+	}
+	var bans []*BanEntry
+	if err := r.get(path, &bans); err != nil {
+		return nil, err
+	}
+	return bans, nil
+}
+
+// GetGuildInvites returns all active invites for a guild.
+func (r *RestClient) GetGuildInvites(guildID string) ([]*Invite, error) {
+	var invites []*Invite
+	if err := r.get("/guilds/"+guildID+"/invites", &invites); err != nil {
+		return nil, err
+	}
+	return invites, nil
+}
+
+// GetGuildEmojis returns all custom emojis for a guild.
+func (r *RestClient) GetGuildEmojis(guildID string) ([]*Emoji, error) {
+	var emojis []*Emoji
+	if err := r.get("/guilds/"+guildID+"/emojis", &emojis); err != nil {
+		return nil, err
+	}
+	return emojis, nil
+}
+
+// CreateEmoji creates a new custom emoji in a guild.
+// Accepted keys: name, image (data URI), roles.
+func (r *RestClient) CreateEmoji(guildID string, data map[string]interface{}) (*Emoji, error) {
+	var e Emoji
+	if err := r.post("/guilds/"+guildID+"/emojis", data, &e); err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// ModifyEmoji updates a custom emoji's name or allowed roles.
+// Accepted keys: name, roles.
+func (r *RestClient) ModifyEmoji(guildID, emojiID string, data map[string]interface{}) (*Emoji, error) {
+	var e Emoji
+	if err := r.patch("/guilds/"+guildID+"/emojis/"+emojiID, data, &e); err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// DeleteEmoji deletes a custom emoji from a guild.
+func (r *RestClient) DeleteEmoji(guildID, emojiID string) error {
+	return r.delete("/guilds/" + guildID + "/emojis/" + emojiID)
+}
+
+// ---------------------------------------------------------------------------
+// Channel management
+// ---------------------------------------------------------------------------
+
+// DeleteChannel deletes a channel by ID.
+func (r *RestClient) DeleteChannel(channelID string) error {
+	return r.delete("/channels/" + channelID)
+}
+
+// GetChannelMessages fetches messages from a channel with optional pagination.
+// Pass limit=0 to omit the limit param. before and after are message IDs.
+func (r *RestClient) GetChannelMessages(channelID string, limit int, before, after string) ([]*Message, error) {
+	path := "/channels/" + channelID + "/messages"
+	params := []string{}
+	if limit > 0 {
+		params = append(params, fmt.Sprintf("limit=%d", limit))
+	}
+	if before != "" {
+		params = append(params, "before="+before)
+	}
+	if after != "" {
+		params = append(params, "after="+after)
+	}
+	if len(params) > 0 {
+		path += "?" + strings.Join(params, "&")
+	}
+	var msgs []*Message
+	if err := r.get(path, &msgs); err != nil {
+		return nil, err
+	}
+	return msgs, nil
+}
+
+// GetPinnedMessages returns all pinned messages in a channel.
+func (r *RestClient) GetPinnedMessages(channelID string) ([]*Message, error) {
+	var msgs []*Message
+	if err := r.get("/channels/"+channelID+"/pins", &msgs); err != nil {
+		return nil, err
+	}
+	return msgs, nil
+}
+
+// CreateChannelInvite creates an invite for a channel.
+// Accepted keys: max_age, max_uses, temporary, unique, target_type, target_user_id.
+func (r *RestClient) CreateChannelInvite(channelID string, data map[string]interface{}) (*Invite, error) {
+	var inv Invite
+	if err := r.post("/channels/"+channelID+"/invites", data, &inv); err != nil {
+		return nil, err
+	}
+	return &inv, nil
+}
+
+// GetChannelInvites returns all invites for a channel.
+func (r *RestClient) GetChannelInvites(channelID string) ([]*Invite, error) {
+	var invites []*Invite
+	if err := r.get("/channels/"+channelID+"/invites", &invites); err != nil {
+		return nil, err
+	}
+	return invites, nil
+}
+
+// TriggerTypingIndicator triggers the typing indicator in a channel.
+func (r *RestClient) TriggerTypingIndicator(channelID string) error {
+	return r.do(http.MethodPost, "/channels/"+channelID+"/typing", nil, nil)
+}
+
+// ---------------------------------------------------------------------------
+// Invites
+// ---------------------------------------------------------------------------
+
+// GetInvite fetches an invite by its code. Pass withCounts=true to include
+// approximate member and presence counts.
+func (r *RestClient) GetInvite(code string, withCounts bool) (*Invite, error) {
+	path := "/invites/" + code
+	if withCounts {
+		path += "?with_counts=true"
+	}
+	var inv Invite
+	if err := r.get(path, &inv); err != nil {
+		return nil, err
+	}
+	return &inv, nil
+}
+
+// DeleteInvite revokes an invite by its code.
+func (r *RestClient) DeleteInvite(code string) error {
+	return r.delete("/invites/" + code)
+}
+
+// ---------------------------------------------------------------------------
+// Threads
+// ---------------------------------------------------------------------------
+
+// CreateThreadFromMessage creates a thread from an existing message.
+// Accepted keys: name, auto_archive_duration, rate_limit_per_user.
+func (r *RestClient) CreateThreadFromMessage(channelID, messageID string, data map[string]interface{}) (*Channel, error) {
+	var ch Channel
+	if err := r.post("/channels/"+channelID+"/messages/"+messageID+"/threads", data, &ch); err != nil {
+		return nil, err
+	}
+	return &ch, nil
+}
+
+// CreateThreadWithoutMessage creates a thread not attached to any message.
+// Accepted keys: name, auto_archive_duration, type, invitable, rate_limit_per_user.
+func (r *RestClient) CreateThreadWithoutMessage(channelID string, data map[string]interface{}) (*Channel, error) {
+	var ch Channel
+	if err := r.post("/channels/"+channelID+"/threads", data, &ch); err != nil {
+		return nil, err
+	}
+	return &ch, nil
+}
+
+// JoinThread adds the current user to a thread.
+func (r *RestClient) JoinThread(channelID string) error {
+	return r.put("/channels/"+channelID+"/thread-members/@me", nil)
+}
+
+// LeaveThread removes the current user from a thread.
+func (r *RestClient) LeaveThread(channelID string) error {
+	return r.delete("/channels/" + channelID + "/thread-members/@me")
+}
+
+// AddThreadMember adds a user to a thread.
+func (r *RestClient) AddThreadMember(channelID, userID string) error {
+	return r.put("/channels/"+channelID+"/thread-members/"+userID, nil)
+}
+
+// RemoveThreadMember removes a user from a thread.
+func (r *RestClient) RemoveThreadMember(channelID, userID string) error {
+	return r.delete("/channels/" + channelID + "/thread-members/" + userID)
+}
+
+// GetThreadMembers returns all members of a thread.
+func (r *RestClient) GetThreadMembers(channelID string) ([]*ThreadMember, error) {
+	var members []*ThreadMember
+	if err := r.get("/channels/"+channelID+"/thread-members", &members); err != nil {
+		return nil, err
+	}
+	return members, nil
+}
+
+// activeThreadsResponse is the shape of the active threads endpoint response.
+type activeThreadsResponse struct {
+	Threads []*Channel      `json:"threads"`
+	Members []*ThreadMember `json:"members"`
+}
+
+// GetActiveThreads returns all active threads in a guild.
+func (r *RestClient) GetActiveThreads(guildID string) ([]*Channel, error) {
+	var resp activeThreadsResponse
+	if err := r.get("/guilds/"+guildID+"/threads/active", &resp); err != nil {
+		return nil, err
+	}
+	return resp.Threads, nil
+}
+
+// ---------------------------------------------------------------------------
+// Reactions - extended
+// ---------------------------------------------------------------------------
+
+// GetReactions returns users who reacted with a specific emoji on a message.
+// emoji should be a unicode character (e.g. "👍") or "name:id" for custom emojis.
+// Pass limit=0 to omit the limit param.
+func (r *RestClient) GetReactions(channelID, messageID, emoji string, limit int) ([]*User, error) {
+	path := "/channels/" + channelID + "/messages/" + messageID + "/reactions/" + url.QueryEscape(emoji)
+	if limit > 0 {
+		path += fmt.Sprintf("?limit=%d", limit)
+	}
+	var users []*User
+	if err := r.get(path, &users); err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
+// DeleteAllReactions removes all reactions from a message.
+func (r *RestClient) DeleteAllReactions(channelID, messageID string) error {
+	return r.delete("/channels/" + channelID + "/messages/" + messageID + "/reactions")
+}
+
+// DeleteAllReactionsForEmoji removes all reactions of a specific emoji from a message.
+// emoji should be a unicode character (e.g. "👍") or "name:id" for custom emojis.
+func (r *RestClient) DeleteAllReactionsForEmoji(channelID, messageID, emoji string) error {
+	return r.delete("/channels/" + channelID + "/messages/" + messageID + "/reactions/" + url.QueryEscape(emoji))
+}
+
+// ---------------------------------------------------------------------------
+// Voice
+// ---------------------------------------------------------------------------
+
+// GetVoiceRegions returns available voice regions.
+func (r *RestClient) GetVoiceRegions() ([]map[string]interface{}, error) {
+	var regions []map[string]interface{}
+	if err := r.get("/voice/regions", &regions); err != nil {
+		return nil, err
+	}
+	return regions, nil
+}
+
+// ---------------------------------------------------------------------------
+// Audit Log
+// ---------------------------------------------------------------------------
+
+// GetGuildAuditLog fetches the audit log for a guild, optionally filtered by
+// action type. Pass 0 for actionType to return all action types.
+// limit controls how many entries to return (1–100; 50 is the API default).
+func (r *RestClient) GetGuildAuditLog(guildID string, actionType int, limit int) (*AuditLog, error) {
+	params := url.Values{}
+	if actionType != 0 {
+		params.Set("action_type", strconv.Itoa(actionType))
+	}
+	if limit > 0 {
+		params.Set("limit", strconv.Itoa(limit))
+	}
+	path := "/guilds/" + guildID + "/audit-logs"
+	if len(params) > 0 {
+		path += "?" + params.Encode()
+	}
+	var al AuditLog
+	if err := r.get(path, &al); err != nil {
+		return nil, err
+	}
+	return &al, nil
 }

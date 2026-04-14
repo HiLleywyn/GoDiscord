@@ -179,6 +179,114 @@ func (b *Bot) OnGuildBanRemove(h GuildBanRemoveHandler) *Bot {
 	return b
 }
 
+// OnChannelCreate registers a handler called when a channel is created.
+func (b *Bot) OnChannelCreate(h ChannelCreateHandler) *Bot {
+	b.events.addChannelCreate(h)
+	return b
+}
+
+// OnChannelUpdate registers a handler called when a channel is updated.
+func (b *Bot) OnChannelUpdate(h ChannelUpdateHandler) *Bot {
+	b.events.addChannelUpdate(h)
+	return b
+}
+
+// OnChannelDelete registers a handler called when a channel is deleted.
+func (b *Bot) OnChannelDelete(h ChannelDeleteHandler) *Bot {
+	b.events.addChannelDelete(h)
+	return b
+}
+
+// OnGuildUpdate registers a handler called when a guild's settings change.
+func (b *Bot) OnGuildUpdate(h GuildUpdateHandler) *Bot {
+	b.events.addGuildUpdate(h)
+	return b
+}
+
+// OnGuildRoleCreate registers a handler called when a role is created in a guild.
+func (b *Bot) OnGuildRoleCreate(h GuildRoleCreateHandler) *Bot {
+	b.events.addGuildRoleCreate(h)
+	return b
+}
+
+// OnGuildRoleUpdate registers a handler called when a role is updated in a guild.
+func (b *Bot) OnGuildRoleUpdate(h GuildRoleUpdateHandler) *Bot {
+	b.events.addGuildRoleUpdate(h)
+	return b
+}
+
+// OnGuildRoleDelete registers a handler called when a role is deleted from a guild.
+func (b *Bot) OnGuildRoleDelete(h GuildRoleDeleteHandler) *Bot {
+	b.events.addGuildRoleDelete(h)
+	return b
+}
+
+// OnThreadCreate registers a handler called when a thread is created.
+func (b *Bot) OnThreadCreate(h ThreadCreateHandler) *Bot {
+	b.events.addThreadCreate(h)
+	return b
+}
+
+// OnThreadUpdate registers a handler called when a thread is updated.
+func (b *Bot) OnThreadUpdate(h ThreadUpdateHandler) *Bot {
+	b.events.addThreadUpdate(h)
+	return b
+}
+
+// OnThreadDelete registers a handler called when a thread is deleted.
+func (b *Bot) OnThreadDelete(h ThreadDeleteHandler) *Bot {
+	b.events.addThreadDelete(h)
+	return b
+}
+
+// OnInviteCreate registers a handler called when an invite is created.
+func (b *Bot) OnInviteCreate(h InviteCreateHandler) *Bot {
+	b.events.addInviteCreate(h)
+	return b
+}
+
+// OnInviteDelete registers a handler called when an invite is deleted.
+func (b *Bot) OnInviteDelete(h InviteDeleteHandler) *Bot {
+	b.events.addInviteDelete(h)
+	return b
+}
+
+// OnWebhooksUpdate registers a handler called when a channel's webhooks change.
+func (b *Bot) OnWebhooksUpdate(h WebhooksUpdateHandler) *Bot {
+	b.events.addWebhooksUpdate(h)
+	return b
+}
+
+// OnVoiceStateUpdate registers a handler called when a user's voice state changes.
+func (b *Bot) OnVoiceStateUpdate(h VoiceStateUpdateHandler) *Bot {
+	b.events.addVoiceStateUpdate(h)
+	return b
+}
+
+// OnTypingStart registers a handler called when a user starts typing.
+func (b *Bot) OnTypingStart(h TypingStartHandler) *Bot {
+	b.events.addTypingStart(h)
+	return b
+}
+
+// OnMessageDeleteBulk registers a handler called when multiple messages are deleted at once.
+func (b *Bot) OnMessageDeleteBulk(h MessageDeleteBulkHandler) *Bot {
+	b.events.addMessageDeleteBulk(h)
+	return b
+}
+
+// OnReactionRemoveAll registers a handler called when all reactions are removed from a message.
+func (b *Bot) OnReactionRemoveAll(h ReactionRemoveAllHandler) *Bot {
+	b.events.addReactionRemoveAll(h)
+	return b
+}
+
+// OnReactionRemoveEmoji registers a handler called when all reactions for a specific emoji are removed.
+func (b *Bot) OnReactionRemoveEmoji(h ReactionRemoveEmojiHandler) *Bot {
+	b.events.addReactionRemoveEmoji(h)
+	return b
+}
+
 // ---------------------------------------------------------------------------
 // Command framework
 // ---------------------------------------------------------------------------

@@ -101,6 +101,18 @@ type CommandContext struct {
 
 	// RawArgs is everything after the command name, unsplit and untouched.
 	RawArgs string
+
+	// GuildID is the ID of the guild the command was invoked in. Empty for DMs.
+	GuildID string
+
+	// ChannelID is the ID of the channel the command was invoked in.
+	ChannelID string
+
+	// AuthorID is the ID of the user who invoked the command. Empty if Author is nil.
+	AuthorID string
+
+	// Member is the guild member record of the invoking user. Nil for DMs.
+	Member *Member
 }
 
 // Reply sends a plain-text message to the same channel.
@@ -224,6 +236,13 @@ func (h *commandHandler) handle(b *Bot, msg *Message) {
 		Args:    args,
 		RawArgs: rawArgs,
 	}
+
+	ctx.GuildID = msg.GuildID
+	ctx.ChannelID = msg.ChannelID
+	if msg.Author != nil {
+		ctx.AuthorID = msg.Author.ID
+	}
+	ctx.Member = msg.Member
 
 	// Permission gate: Discord bitfield check.
 	if cmd.RequiredPermissions != 0 {
