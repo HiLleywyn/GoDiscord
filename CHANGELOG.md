@@ -8,8 +8,73 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **`commands.go`** — `CommandContext` now exposes `GuildID`, `ChannelID`,
+  `AuthorID`, and `Member` fields, populated from the triggering message.
+  Previously callers had to extract these manually from `ctx.Message`.
+
+- **`commands.go`** — Permission gate on `Command`: `RequiredPermissions`
+  (Discord bitfield, all bits must be present) and `PermCheck` (custom
+  `func(*CommandContext) bool`). Either gate failing invokes the bot's
+  denied-callback (if registered) and skips the handler.
+
+- **`bot.go`** — `Bot.SetCommandDenied(fn func(*CommandContext, string))`:
+  registers a callback called when a permission gate blocks a command.
+
+- **`bot.go`** — 18 new event registration methods: `OnChannelCreate`,
+  `OnChannelUpdate`, `OnChannelDelete`, `OnGuildUpdate`, `OnGuildRoleCreate`,
+  `OnGuildRoleUpdate`, `OnGuildRoleDelete`, `OnThreadCreate`, `OnThreadUpdate`,
+  `OnThreadDelete`, `OnInviteCreate`, `OnInviteDelete`, `OnWebhooksUpdate`,
+  `OnVoiceStateUpdate`, `OnTypingStart`, `OnMessageDeleteBulk`,
+  `OnReactionRemoveAll`, `OnReactionRemoveEmoji`.
+
+- **`events.go`** — Gateway dispatch for all 18 new event types above.
+  `CHANNEL_CREATE/UPDATE/DELETE`, `GUILD_UPDATE`, and `THREAD_CREATE/UPDATE/DELETE`
+  unmarshal directly into `Channel` / `Guild` aliases for zero-overhead field access.
+
+- **`rest.go`** — 44 new endpoints:
+  - **User**: `GetCurrentUser`, `ModifyCurrentUser`, `GetCurrentUserGuilds`, `LeaveGuild`
+  - **Guild**: `ModifyGuild`, `SearchGuildMembers`, `GetGuildInvites`, `GetGuildEmojis`,
+    `CreateEmoji`, `ModifyEmoji`, `DeleteEmoji`, `GetGuildBansPaginated`, `GetGuildAuditLog`
+  - **Roles**: `CreateRole`, `ModifyRole`, `DeleteRole`, `ModifyRolePositions`
+  - **Channels**: `CreateChannel`, `DeleteChannel`, `GetChannelMessages`, `GetPinnedMessages`,
+    `CreateChannelInvite`, `GetChannelInvites`, `TriggerTypingIndicator`
+  - **Invites**: `GetInvite`, `DeleteInvite`
+  - **Threads**: `CreateThreadFromMessage`, `CreateThreadWithoutMessage`, `JoinThread`,
+    `LeaveThread`, `AddThreadMember`, `RemoveThreadMember`, `GetThreadMembers`, `GetActiveThreads`
+  - **Reactions**: `GetReactions`, `DeleteAllReactions`, `DeleteAllReactionsForEmoji`
+  - **Voice**: `GetVoiceRegions`
+  - **Audit log**: `GetGuildAuditLog`
+
+- **`types.go`** — Expanded `Guild` with: `Banner`, `Splash`, `AFKChannelID`, `AFKTimeout`,
+  `VerificationLevel`, `MFALevel`, `ExplicitContentFilter`, `DefaultMessageNotifications`,
+  `NSFWLevel`, `PublicUpdatesChannelID`.
+
+- **`types.go`** — Expanded `Channel` with: `Bitrate`, `UserLimit`, `RateLimitPerUser`,
+  `LastMessageID`, `DefaultAutoArchiveDuration`, `PermissionOverwrites`, `ThreadMetadata`, `Member`.
+
+- **`types.go`** — Expanded `Message` with: `Pinned`, `MentionEveryone`, `MentionRoles`,
+  `Mentions`, `WebhookID`, `Type`, `Flags`, `ReferencedMessage`, `Thread`, `Components`.
+
+- **`types.go`** — New structs: `PermissionOverwrite`, `VoiceState`, `BanEntry`, `Invite`,
+  `ThreadMetadata`, `ThreadMember`, `AuditLog`, `AuditLogEntry`, `AuditLogOptions`, `AuditLogChange`.
+
+- **`types.go`** — `ChannelCreateEvent`, `ChannelUpdateEvent`, `ChannelDeleteEvent`, and
+  `GuildUpdateEvent` are now type aliases for `Channel` / `Guild` respectively. Handlers
+  receive the full object directly with no wrapper struct to unwrap.
+
+- **`types.go`** — `ThreadCreateEvent`, `ThreadUpdateEvent`, `ThreadDeleteEvent` are type
+  aliases for `Channel` — consistent with `CHANNEL_*` events since threads are channels.
+
+- **`types.go`** — `GuildRoleCreateEvent.Role` and `GuildRoleUpdateEvent.Role` are now
+  `Role` (value) instead of `*Role`, eliminating a double-pointer when taking the address.
+
 ### Changed
 
+- **`README.md`** — Updated events table to list all 32 event types with payload types.
+  Added `CommandContext` field reference and permission gate examples.
+  Updated feature table to reflect 32 events and expanded REST surface.
 - **`README.md`** — Expanded the rate-limiting section to name
   `maxRateLimitRetries` explicitly, reworded the opening paragraph to
   call out the zero-dependency WebSocket client and panic-recovered

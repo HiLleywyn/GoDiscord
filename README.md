@@ -15,10 +15,10 @@ GoDiscord implements [Discord Gateway v10](https://discord.com/developers/docs/t
 | Area | What's included |
 |------|----------------|
 | **Gateway** | WebSocket connection, Identify/Resume, heartbeat, exponential back-off reconnect, zombie detection |
-| **Events** | Typed handlers, panic-recovery goroutines, 14 event types |
-| **Commands** | Prefix-based routing, quoted-string args, middleware chain |
+| **Events** | Typed handlers, panic-recovery goroutines, 32 event types |
+| **Commands** | Prefix-based routing, quoted-string args, middleware chain, permission gates |
 | **Interactions** | Slash commands, select menus, buttons, ephemeral responses, follow-up messages |
-| **REST** | Messages, reactions, guilds, members, roles, channels, webhooks, bans |
+| **REST** | Messages, reactions, guilds, members, roles, channels, threads, invites, emojis, webhooks, bans, audit log |
 | **Utilities** | `Permission` bitflag type (53 constants), pluggable `Logger` interface, structured `APIError` |
 
 ---
@@ -132,22 +132,40 @@ All handlers run in separate goroutines. Panics are caught and logged — a bad 
 
 **Supported events:**
 
-| Event | Handler type |
-|-------|-------------|
-| `READY` | `ReadyHandler` |
-| `MESSAGE_CREATE` | `MessageCreateHandler` |
-| `MESSAGE_UPDATE` | `MessageUpdateHandler` |
-| `MESSAGE_DELETE` | `MessageDeleteHandler` |
-| `GUILD_CREATE` | `GuildCreateHandler` |
-| `GUILD_DELETE` | `GuildDeleteHandler` |
-| `GUILD_MEMBER_ADD` | `GuildMemberAddHandler` |
-| `GUILD_MEMBER_REMOVE` | `GuildMemberRemoveHandler` |
-| `GUILD_MEMBER_UPDATE` | `GuildMemberUpdateHandler` |
-| `GUILD_BAN_ADD` | `GuildBanAddHandler` |
-| `GUILD_BAN_REMOVE` | `GuildBanRemoveHandler` |
-| `MESSAGE_REACTION_ADD` | `ReactionAddHandler` |
-| `MESSAGE_REACTION_REMOVE` | `ReactionRemoveHandler` |
-| `INTERACTION_CREATE` | `InteractionCreateHandler` |
+| Event | Handler type | Payload type |
+|-------|-------------|-------------|
+| `READY` | `ReadyHandler` | `*ReadyEvent` |
+| `MESSAGE_CREATE` | `MessageCreateHandler` | `*Message` |
+| `MESSAGE_UPDATE` | `MessageUpdateHandler` | `*Message` |
+| `MESSAGE_DELETE` | `MessageDeleteHandler` | `*MessageDeleteEvent` |
+| `MESSAGE_DELETE_BULK` | `MessageDeleteBulkHandler` | `*MessageDeleteBulkEvent` |
+| `GUILD_CREATE` | `GuildCreateHandler` | `*Guild` |
+| `GUILD_UPDATE` | `GuildUpdateHandler` | `*Guild` |
+| `GUILD_DELETE` | `GuildDeleteHandler` | `*GuildUnavailable` |
+| `GUILD_MEMBER_ADD` | `GuildMemberAddHandler` | `*Member` |
+| `GUILD_MEMBER_REMOVE` | `GuildMemberRemoveHandler` | `*GuildMemberRemoveEvent` |
+| `GUILD_MEMBER_UPDATE` | `GuildMemberUpdateHandler` | `*Member` |
+| `GUILD_BAN_ADD` | `GuildBanAddHandler` | `*GuildBanEvent` |
+| `GUILD_BAN_REMOVE` | `GuildBanRemoveHandler` | `*GuildBanEvent` |
+| `GUILD_ROLE_CREATE` | `GuildRoleCreateHandler` | `*GuildRoleCreateEvent` |
+| `GUILD_ROLE_UPDATE` | `GuildRoleUpdateHandler` | `*GuildRoleUpdateEvent` |
+| `GUILD_ROLE_DELETE` | `GuildRoleDeleteHandler` | `*GuildRoleDeleteEvent` |
+| `CHANNEL_CREATE` | `ChannelCreateHandler` | `*Channel` |
+| `CHANNEL_UPDATE` | `ChannelUpdateHandler` | `*Channel` |
+| `CHANNEL_DELETE` | `ChannelDeleteHandler` | `*Channel` |
+| `THREAD_CREATE` | `ThreadCreateHandler` | `*Channel` |
+| `THREAD_UPDATE` | `ThreadUpdateHandler` | `*Channel` |
+| `THREAD_DELETE` | `ThreadDeleteHandler` | `*Channel` |
+| `INVITE_CREATE` | `InviteCreateHandler` | `*InviteCreateEvent` |
+| `INVITE_DELETE` | `InviteDeleteHandler` | `*InviteDeleteEvent` |
+| `WEBHOOKS_UPDATE` | `WebhooksUpdateHandler` | `*WebhooksUpdateEvent` |
+| `VOICE_STATE_UPDATE` | `VoiceStateUpdateHandler` | `*VoiceState` |
+| `TYPING_START` | `TypingStartHandler` | `*TypingStartEvent` |
+| `MESSAGE_REACTION_ADD` | `ReactionAddHandler` | `*ReactionEvent` |
+| `MESSAGE_REACTION_REMOVE` | `ReactionRemoveHandler` | `*ReactionEvent` |
+| `MESSAGE_REACTION_REMOVE_ALL` | `ReactionRemoveAllHandler` | `*ReactionRemoveAllEvent` |
+| `MESSAGE_REACTION_REMOVE_EMOJI` | `ReactionRemoveEmojiHandler` | `*ReactionRemoveEmojiEvent` |
+| `INTERACTION_CREATE` | `InteractionCreateHandler` | `*Interaction` |
 
 ---
 
@@ -172,12 +190,54 @@ bot.AddCommand(&discord.Command{
 })
 ```
 
+### CommandContext fields
+
+Every handler receives a `*CommandContext` with everything needed to act on the command:
+
+```go
+ctx.Bot        // *Bot — the running bot instance
+ctx.Message    // *Message — the raw message that triggered the command
+ctx.Command    // *Command — the matched command definition
+ctx.Args       // []string — quoted-string-aware parsed tokens after the command name
+ctx.RawArgs    // string — everything after the command name, unsplit
+ctx.GuildID    // string — guild the command was invoked in (empty for DMs)
+ctx.ChannelID  // string — channel the command was invoked in
+ctx.AuthorID   // string — user ID of the invoker
+ctx.Member     // *Member — guild member record of the invoker (nil for DMs)
+```
+
+### Permission gates
+
+Commands can be gated behind Discord permission bits or a custom check. A failed
+gate calls the registered denied-callback (if any) and skips the handler.
+
+```go
+bot.AddCommand(&discord.Command{
+    Name:                "ban",
+    RequiredPermissions: discord.PermBanMembers, // Discord permission bitfield
+    Handler: func(ctx *discord.CommandContext) { /* ... */ },
+})
+
+bot.AddCommand(&discord.Command{
+    Name: "staff-only",
+    PermCheck: func(ctx *discord.CommandContext) bool {
+        return isStaff(ctx.AuthorID) // custom gate
+    },
+    Handler: func(ctx *discord.CommandContext) { /* ... */ },
+})
+
+// Called when either gate blocks an invocation.
+bot.SetCommandDenied(func(ctx *discord.CommandContext, reason string) {
+    ctx.Reply("You don't have permission to use that command.")
+})
+```
+
 ### Middleware
 
 ```go
 bot.Use(func(next discord.HandlerFunc) discord.HandlerFunc {
     return func(ctx *discord.CommandContext) {
-        log.Printf("[cmd] %s invoked by %s", ctx.Command.Name, ctx.Message.Author.Username)
+        log.Printf("[cmd] %s invoked by %s in %s", ctx.Command.Name, ctx.AuthorID, ctx.GuildID)
         next(ctx)
     }
 })
