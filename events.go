@@ -121,6 +121,18 @@ type (
 
 	// ReactionRemoveEmojiHandler is called when all reactions for a specific emoji are removed.
 	ReactionRemoveEmojiHandler func(*Bot, *ReactionRemoveEmojiEvent)
+
+	// UserUpdateHandler is called when the current user's properties change.
+	UserUpdateHandler func(*Bot, *UserUpdateEvent)
+
+	// IntegrationCreateHandler is called when an integration is created in a guild.
+	IntegrationCreateHandler func(*Bot, *IntegrationCreateEvent)
+
+	// IntegrationUpdateHandler is called when an integration is updated in a guild.
+	IntegrationUpdateHandler func(*Bot, *IntegrationUpdateEvent)
+
+	// IntegrationDeleteHandler is called when an integration is deleted from a guild.
+	IntegrationDeleteHandler func(*Bot, *IntegrationDeleteEvent)
 )
 
 // ---------------------------------------------------------------------------
@@ -163,6 +175,10 @@ type eventDispatcher struct {
 	onMessageDeleteBulk   []MessageDeleteBulkHandler
 	onReactionRemoveAll   []ReactionRemoveAllHandler
 	onReactionRemoveEmoji []ReactionRemoveEmojiHandler
+	onUserUpdate          []UserUpdateHandler
+	onIntegrationCreate   []IntegrationCreateHandler
+	onIntegrationUpdate   []IntegrationUpdateHandler
+	onIntegrationDelete   []IntegrationDeleteHandler
 }
 
 func newEventDispatcher() *eventDispatcher {
@@ -380,6 +396,30 @@ func (d *eventDispatcher) addReactionRemoveAll(h ReactionRemoveAllHandler) {
 func (d *eventDispatcher) addReactionRemoveEmoji(h ReactionRemoveEmojiHandler) {
 	d.mu.Lock()
 	d.onReactionRemoveEmoji = append(d.onReactionRemoveEmoji, h)
+	d.mu.Unlock()
+}
+
+func (d *eventDispatcher) addUserUpdate(h UserUpdateHandler) {
+	d.mu.Lock()
+	d.onUserUpdate = append(d.onUserUpdate, h)
+	d.mu.Unlock()
+}
+
+func (d *eventDispatcher) addIntegrationCreate(h IntegrationCreateHandler) {
+	d.mu.Lock()
+	d.onIntegrationCreate = append(d.onIntegrationCreate, h)
+	d.mu.Unlock()
+}
+
+func (d *eventDispatcher) addIntegrationUpdate(h IntegrationUpdateHandler) {
+	d.mu.Lock()
+	d.onIntegrationUpdate = append(d.onIntegrationUpdate, h)
+	d.mu.Unlock()
+}
+
+func (d *eventDispatcher) addIntegrationDelete(h IntegrationDeleteHandler) {
+	d.mu.Lock()
+	d.onIntegrationDelete = append(d.onIntegrationDelete, h)
 	d.mu.Unlock()
 }
 
@@ -843,6 +883,62 @@ func (d *eventDispatcher) dispatch(b *Bot, eventType string, data json.RawMessag
 			return
 		}
 		for _, h := range d.onReactionRemoveEmoji {
+			h := h
+			safeGo(b, func() { h(b, &e) })
+		}
+
+	case "USER_UPDATE":
+		if len(d.onUserUpdate) == 0 {
+			return
+		}
+		var e UserUpdateEvent
+		if err := json.Unmarshal(data, &e.User); err != nil {
+			b.log.Printf("[events] USER_UPDATE unmarshal error: %v", err)
+			return
+		}
+		for _, h := range d.onUserUpdate {
+			h := h
+			safeGo(b, func() { h(b, &e) })
+		}
+
+	case "INTEGRATION_CREATE":
+		if len(d.onIntegrationCreate) == 0 {
+			return
+		}
+		var e IntegrationCreateEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			b.log.Printf("[events] INTEGRATION_CREATE unmarshal error: %v", err)
+			return
+		}
+		for _, h := range d.onIntegrationCreate {
+			h := h
+			safeGo(b, func() { h(b, &e) })
+		}
+
+	case "INTEGRATION_UPDATE":
+		if len(d.onIntegrationUpdate) == 0 {
+			return
+		}
+		var e IntegrationUpdateEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			b.log.Printf("[events] INTEGRATION_UPDATE unmarshal error: %v", err)
+			return
+		}
+		for _, h := range d.onIntegrationUpdate {
+			h := h
+			safeGo(b, func() { h(b, &e) })
+		}
+
+	case "INTEGRATION_DELETE":
+		if len(d.onIntegrationDelete) == 0 {
+			return
+		}
+		var e IntegrationDeleteEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			b.log.Printf("[events] INTEGRATION_DELETE unmarshal error: %v", err)
+			return
+		}
+		for _, h := range d.onIntegrationDelete {
 			h := h
 			safeGo(b, func() { h(b, &e) })
 		}

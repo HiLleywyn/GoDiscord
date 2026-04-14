@@ -169,6 +169,23 @@ func (h *commandHandler) register(cmd *Command) {
 	}
 }
 
+// unregister removes a command and all its aliases from the routing table.
+func (h *commandHandler) unregister(name string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	lower := strings.ToLower(name)
+	cmd, ok := h.commands[lower]
+	if !ok {
+		return
+	}
+	// Remove primary name and all aliases that point to the same Command.
+	for k, v := range h.commands {
+		if v == cmd {
+			delete(h.commands, k)
+		}
+	}
+}
+
 // list returns all unique registered commands (no alias duplicates).
 func (h *commandHandler) list() []*Command {
 	h.mu.RLock()

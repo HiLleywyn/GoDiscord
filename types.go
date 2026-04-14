@@ -625,6 +625,43 @@ type ReactionRemoveEmojiEvent struct {
 // Audit Log
 // ---------------------------------------------------------------------------
 
+// Integration represents a guild integration (Twitch, YouTube, Discord, etc.).
+type Integration struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Type    string `json:"type"` // "twitch", "youtube", "discord", "guild_subscription"
+	Enabled bool   `json:"enabled"`
+	GuildID string `json:"guild_id"`
+	Account struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"account"`
+}
+
+// UserUpdateEvent is dispatched when the current user's properties change.
+type UserUpdateEvent struct {
+	User User `json:"user"`
+}
+
+// IntegrationCreateEvent is dispatched when an integration is created in a guild.
+type IntegrationCreateEvent struct {
+	GuildID     string      `json:"guild_id"`
+	Integration Integration `json:"integration"`
+}
+
+// IntegrationUpdateEvent is dispatched when an integration is updated in a guild.
+type IntegrationUpdateEvent struct {
+	GuildID     string      `json:"guild_id"`
+	Integration Integration `json:"integration"`
+}
+
+// IntegrationDeleteEvent is dispatched when an integration is deleted from a guild.
+type IntegrationDeleteEvent struct {
+	ID            string `json:"id"`
+	GuildID       string `json:"guild_id"`
+	ApplicationID string `json:"application_id,omitempty"`
+}
+
 // AuditLog is the response from GET /guilds/{id}/audit-logs.
 type AuditLog struct {
 	AuditLogEntries []AuditLogEntry `json:"audit_log_entries"`

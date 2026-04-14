@@ -846,6 +846,12 @@ func (r *RestClient) TriggerTypingIndicator(channelID string) error {
 	return r.do(http.MethodPost, "/channels/"+channelID+"/typing", nil, nil)
 }
 
+// TriggerTyping triggers the typing indicator in a channel.
+// This is an alias for TriggerTypingIndicator.
+func (r *RestClient) TriggerTyping(channelID string) error {
+	return r.do(http.MethodPost, "/channels/"+channelID+"/typing", nil, nil)
+}
+
 // ---------------------------------------------------------------------------
 // Invites
 // ---------------------------------------------------------------------------

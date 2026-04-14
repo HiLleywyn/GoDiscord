@@ -319,6 +319,43 @@ func (p Permission) IsAdmin() bool {
 	return p.Has(PermAdministrator)
 }
 
+// PermissionName returns a short human-readable label for a single permission
+// bit. These names match the labels shown in the Discord UI. For composite or
+// unknown values the empty string is returned.
+func PermissionName(perm Permission) string {
+	names := map[Permission]string{
+		PermAdministrator:          "Administrator",
+		PermManageGuild:            "Manage Server",
+		PermManageRoles:            "Manage Roles",
+		PermManageChannels:         "Manage Channels",
+		PermBanMembers:             "Ban Members",
+		PermKickMembers:            "Kick Members",
+		PermManageWebhooks:         "Manage Webhooks",
+		PermManageGuildExpressions: "Manage Expressions",
+		PermManageMessages:         "Manage Messages",
+		PermMentionEveryone:        "Mention Everyone",
+		PermModerateMembers:        "Timeout Members",
+		PermManageNicknames:        "Manage Nicknames",
+		PermViewAuditLog:           "View Audit Log",
+		PermCreateInstantInvite:    "Create Invite",
+		PermSendMessages:           "Send Messages",
+		PermViewChannel:            "View Channel",
+		PermReadMessageHistory:     "Read Message History",
+		PermEmbedLinks:             "Embed Links",
+		PermAttachFiles:            "Attach Files",
+		PermAddReactions:           "Add Reactions",
+		PermConnect:                "Connect",
+		PermSpeak:                  "Speak",
+		PermMuteMembers:            "Mute Members",
+		PermDeafenMembers:          "Deafen Members",
+		PermMoveMembers:            "Move Members",
+		PermManageThreads:          "Manage Threads",
+		PermManageEvents:           "Manage Events",
+		PermChangeNickname:         "Change Nickname",
+	}
+	return names[perm]
+}
+
 // String returns a human-readable list of permission names.
 // Useful for debugging; not suitable for display to end users.
 func (p Permission) String() string {

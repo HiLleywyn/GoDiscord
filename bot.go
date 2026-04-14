@@ -287,6 +287,30 @@ func (b *Bot) OnReactionRemoveEmoji(h ReactionRemoveEmojiHandler) *Bot {
 	return b
 }
 
+// OnUserUpdate registers a handler called when the current user's properties change.
+func (b *Bot) OnUserUpdate(h UserUpdateHandler) *Bot {
+	b.events.addUserUpdate(h)
+	return b
+}
+
+// OnIntegrationCreate registers a handler called when an integration is created in a guild.
+func (b *Bot) OnIntegrationCreate(h IntegrationCreateHandler) *Bot {
+	b.events.addIntegrationCreate(h)
+	return b
+}
+
+// OnIntegrationUpdate registers a handler called when an integration is updated in a guild.
+func (b *Bot) OnIntegrationUpdate(h IntegrationUpdateHandler) *Bot {
+	b.events.addIntegrationUpdate(h)
+	return b
+}
+
+// OnIntegrationDelete registers a handler called when an integration is deleted from a guild.
+func (b *Bot) OnIntegrationDelete(h IntegrationDeleteHandler) *Bot {
+	b.events.addIntegrationDelete(h)
+	return b
+}
+
 // ---------------------------------------------------------------------------
 // Command framework
 // ---------------------------------------------------------------------------
@@ -316,6 +340,17 @@ func (b *Bot) AddCommand(cmd *Command) *Bot {
 		b.mu.Unlock()
 	}
 	ch.register(cmd)
+	return b
+}
+
+// RemoveCommand deregisters a command and all its aliases by name.
+func (b *Bot) RemoveCommand(name string) *Bot {
+	b.mu.RLock()
+	ch := b.commands
+	b.mu.RUnlock()
+	if ch != nil {
+		ch.unregister(name)
+	}
 	return b
 }
 
