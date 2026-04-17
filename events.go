@@ -202,11 +202,11 @@ type eventDispatcher struct {
 
 	msgCache *dispatchMsgCache // in-memory message cache for snipe/edit context
 
-	onReady                 []ReadyHandler
-	onMessageCreate         []MessageCreateHandler
-	onMessageUpdate         []MessageUpdateHandler
-	onMessageUpdateEvent    []MessageUpdateEventHandler
-	onMessageDelete         []MessageDeleteHandler
+	onReady               []ReadyHandler
+	onMessageCreate       []MessageCreateHandler
+	onMessageUpdate       []MessageUpdateHandler
+	onMessageUpdateEvent  []MessageUpdateEventHandler
+	onMessageDelete       []MessageDeleteHandler
 	onGuildCreate         []GuildCreateHandler
 	onGuildDelete         []GuildDeleteHandler
 	onReactionAdd         []ReactionAddHandler
