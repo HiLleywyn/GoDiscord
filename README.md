@@ -23,6 +23,12 @@ GoDiscord implements [Discord Gateway v10](https://discord.com/developers/docs/t
 
 ---
 
+## Full Examples
+
+[Carlos - Mod Bot](https://github.com/HiLleywyn/Carlos)
+
+---
+
 ## Quick Start
 
 ```go
